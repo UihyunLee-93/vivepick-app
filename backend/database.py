@@ -10,6 +10,10 @@ load_dotenv()
 
 # 데이터베이스 연결
 DATABASE_URL = os.getenv("SUPABASE_DB_URL")
+if not DATABASE_URL:
+    print("⚠️ DATABASE_URL not found, skipping DB init")
+    # 또는 기본값 설정
+    DATABASE_URL = "postgresql://localhost/dummy"
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
