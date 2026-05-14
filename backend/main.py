@@ -63,7 +63,7 @@ class UserInterestsResponse(BaseModel):
 async def startup_event():
     """앱 시작 시 실행"""
     logger.info("🚀 Vivepick 백엔드 시작")
-    #init_db()
+    #cdinit_db()
     start_scheduler()
 
 
