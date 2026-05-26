@@ -8,10 +8,10 @@ struct SplashView: View {
             VPTheme.background.ignoresSafeArea()
 
             RadialGradient(
-                colors: [VPTheme.orange.opacity(0.28), .clear],
+                colors: [VPTheme.purple.opacity(0.32), .clear],
                 center: .center,
                 startRadius: 30,
-                endRadius: 260
+                endRadius: 280
             )
             .ignoresSafeArea()
 
@@ -19,35 +19,41 @@ struct SplashView: View {
                 Spacer()
 
                 VStack(spacing: 18) {
-                    AppLogo(size: 74)
+                    AppLogo(size: 84)
 
                     Text("VibePick")
-                        .font(.system(size: 30, weight: .bold))
+                        .font(.system(size: 32, weight: .bold))
                         .foregroundColor(.white)
 
-                    Text("오늘 시장 분위기를 빠르게.")
+                    Text("하루 3번, 시장 분위기 브리핑")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(VPTheme.grayText)
                 }
 
                 VStack(spacing: 10) {
-                    SplashSignalRow(icon: "flame.fill", title: "#AI", status: "관심 확대 흐름", color: VPTheme.orange)
-                    SplashSignalRow(icon: "cloud.fill", title: "#2차전지", status: "거래량 둔화", color: VPTheme.blue)
-                    SplashSignalRow(icon: "eye.fill", title: "#금리", status: "관망 분위기", color: VPTheme.purple)
+                    SplashSignalRow(emoji: "🌅", title: "아침 브리핑", status: "07:30", color: Color(hex: "FF8A4C"))
+                    SplashSignalRow(emoji: "☀️", title: "점심 브리핑", status: "12:30 · 프로", color: Color(hex: "FFB86B"))
+                    SplashSignalRow(emoji: "🌙", title: "저녁 브리핑", status: "20:00 · 프로", color: Color(hex: "8B5CF6"))
                 }
-                .padding(.top, 48)
+                .padding(.top, 44)
                 .padding(.horizontal, 24)
 
                 Spacer()
 
                 Button(action: onStart) {
                     Text("시작하기  →")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.black)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
-                        .background(Color.white)
+                        .background(
+                            LinearGradient(
+                                colors: [VPTheme.purple, VPTheme.pink],
+                                startPoint: .leading, endPoint: .trailing
+                            )
+                        )
                         .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .shadow(color: VPTheme.purple.opacity(0.5), radius: 18, y: 10)
                 }
                 .padding(.horizontal, 24)
 
@@ -69,9 +75,9 @@ struct AppLogo: View {
             .fill(
                 LinearGradient(
                     colors: [
-                        Color(red: 1.0, green: 0.56, blue: 0.28),
-                        Color(red: 1.0, green: 0.26, blue: 0.42),
-                        Color(red: 0.58, green: 0.42, blue: 1.0)
+                        Color(hex: "FF8A4C"),
+                        Color(hex: "EC4899"),
+                        Color(hex: "8B5CF6")
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -83,21 +89,20 @@ struct AppLogo: View {
                     .font(.system(size: size * 0.44, weight: .bold))
                     .foregroundColor(.white)
             )
-            .shadow(color: VPTheme.orange.opacity(0.35), radius: 24, x: 0, y: 12)
+            .shadow(color: VPTheme.purple.opacity(0.5), radius: 24, x: 0, y: 12)
     }
 }
 
 struct SplashSignalRow: View {
-    let icon: String
+    let emoji: String
     let title: String
     let status: String
     let color: Color
 
     var body: some View {
         HStack {
-            Image(systemName: icon)
-                .foregroundColor(color)
-                .font(.system(size: 14, weight: .semibold))
+            Text(emoji)
+                .font(.system(size: 16))
 
             Text(title)
                 .font(.system(size: 13, weight: .bold))
@@ -110,8 +115,8 @@ struct SplashSignalRow: View {
                 .foregroundColor(.white.opacity(0.78))
         }
         .padding(.horizontal, 14)
-        .frame(height: 46)
-        .background(VPTheme.card)
+        .frame(height: 48)
+        .background(VPTheme.surface)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(VPTheme.line, lineWidth: 1)

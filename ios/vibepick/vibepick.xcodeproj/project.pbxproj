@@ -34,6 +34,7 @@
 			children = (
 				5E8556132FB6419B0073E451 /* vibepick */,
 				5E8556122FB6419B0073E451 /* Products */,
+				5EDDFCC82FBCF4C90093717D /* Services */,
 			);
 			sourceTree = "<group>";
 		};
@@ -43,6 +44,13 @@
 				5E8556112FB6419B0073E451 /* vibepick.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		5EDDFCC82FBCF4C90093717D /* Services */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Services;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
