@@ -247,7 +247,7 @@ struct BriefTopic: Identifiable, Codable {
 }
 
 // MARK: - Brief
-struct Brief: Identifiable {
+struct Brief: Identifiable, Codable {
     let id: UUID
     let slot: BriefSlot
     let isUnlocked: Bool

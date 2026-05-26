@@ -3,9 +3,12 @@ import SwiftUI
 // MARK: - 01. Home (Today's Briefing)
 struct HomeView: View {
     @AppStorage(AppMode.isProModeStorageKey) private var isProMode = false
+    @State private var briefs: [Brief] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String? = nil
 
-    private var briefs: [Brief] {
-        DummyData.makeBriefs(isProMode: isProMode)
+    private var displayBriefs: [Brief] {
+        briefs.isEmpty ? DummyData.makeBriefs(isProMode: isProMode) : briefs
     }
 
     var body: some View {
@@ -19,7 +22,15 @@ struct HomeView: View {
                             .padding(.top, 8)
                             .padding(.bottom, 6)
 
-                        ForEach(briefs) { brief in
+                        if isLoading && briefs.isEmpty {
+                            loadingView
+                        }
+
+                        if let errorMessage, briefs.isEmpty {
+                            errorView(message: errorMessage)
+                        }
+
+                        ForEach(displayBriefs) { brief in
                             NavigationLink {
                                 if brief.isUnlocked {
                                     BriefDetailView(brief: brief)
@@ -37,6 +48,71 @@ struct HomeView: View {
                 }
             }
             .navigationBarHidden(true)
+        }
+        .task {
+            await loadBriefings()
+        }
+        .refreshable {
+            await loadBriefings()
+        }
+    }
+
+    private var loadingView: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .tint(.white)
+            Text("브리핑을 불러오는 중입니다")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(VPTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(18)
+        .background(VPTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.05), lineWidth: 1))
+    }
+
+    private func errorView(message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(VPTheme.negative)
+                Text("데이터 로드 실패")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+            }
+
+            Text(message)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(VPTheme.textTertiary)
+                .lineLimit(3)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(VPTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(VPTheme.negative.opacity(0.18), lineWidth: 1))
+    }
+
+    private func loadBriefings() async {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            briefs = try await NetworkManager.shared.fetchBriefings()
+            isLoading = false
+        } catch {
+            isLoading = false
+
+            let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                print("API 요청 취소: 화면 전환 또는 SwiftUI task 취소")
+                return
+            }
+
+            errorMessage = "데이터 로드 실패: \(error.localizedDescription)"
+            print("API Error: \(error)")
         }
     }
 

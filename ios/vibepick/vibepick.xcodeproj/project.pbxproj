@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5EDDFCCB2FC550210093717D /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDDFCCA2FC550210093717D /* NetworkManager.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		5E8556112FB6419B0073E451 /* vibepick.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vibepick.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5EDDFCCA2FC550210093717D /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -35,6 +40,7 @@
 				5E8556132FB6419B0073E451 /* vibepick */,
 				5E8556122FB6419B0073E451 /* Products */,
 				5EDDFCC82FBCF4C90093717D /* Services */,
+				5EDDFCCA2FC550210093717D /* NetworkManager.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -127,6 +133,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5EDDFCCB2FC550210093717D /* NetworkManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
