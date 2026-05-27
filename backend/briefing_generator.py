@@ -44,7 +44,7 @@ class BriefingGenerator:
 다음 형식으로 **반드시 JSON만** 응답하세요 (다른 텍스트 없음):
 
 {{
-    "summary": "3줄 이내로 핵심 내용을 요약",
+    "summary": "기사 내용을 한국어로 3줄 이내 요약",
     "positive_points": ["투자자 관점에서의 긍정적 요소 1", "긍정적 요소 2"],
     "negative_points": ["투자자 관점에서의 부정적 요소 1", "부정적 요소 2"],
     "related_stocks": ["관련 상장사 1", "관련 상장사 2"],
