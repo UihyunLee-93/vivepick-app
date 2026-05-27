@@ -5,6 +5,7 @@ from datetime import datetime
 import os
 from typing import List, Dict
 import logging
+import feedparser
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,41 +22,29 @@ class NewsCrawler:
     
     # ============ 뉴스 소스 1: HTML Parser로 RSS 크롤링 ============
     
+
     def crawl_financial_news_rss(self) -> List[Dict]:
-        """HTML parser로 RSS 피드 수집 (lxml 불필요)"""
+        """feedparser로 RSS 피드 수집"""
         articles = []
         
-        # 주요 금융 뉴스 RSS 피드
         rss_feeds = [
-            "https://www.fnnews.com/rss/headline.xml",  # FN뉴스
-            "https://feeds.bloomberg.com/markets/news.rss",  # 블룸버그
-            "https://feeds2.cnbc.com/cnbc-intl/",  # CNBC
+            "https://www.fnnews.com/rss/headline.xml",
+            "https://feeds.bloomberg.com/markets/news.rss",
+            "https://feeds2.cnbc.com/cnbc-intl/",
         ]
         
         for feed_url in rss_feeds:
             try:
-                response = self.session.get(feed_url, timeout=10, headers=self.headers)
-                response.encoding = 'utf-8'
+                feed = feedparser.parse(feed_url)
                 
-                # html.parser 사용 (Python 내장, lxml 불필요)
-                soup = BeautifulSoup(response.content, 'html.parser')
-                
-                items = soup.find_all('item')[:10]  # 피드당 최대 10개
-                
-                for item in items:
-                    title = item.find('title')
-                    link = item.find('link')
-                    description = item.find('description')
-                    pub_date = item.find('pubDate')
-                    
-                    if title and link:
-                        articles.append({
-                            'title': title.get_text(strip=True),
-                            'url': link.get_text(strip=True),
-                            'content': description.get_text(strip=True) if description else '',
-                            'source': feed_url.split('/')[-2],
-                            'published_at': pub_date.get_text() if pub_date else datetime.utcnow()
-                        })
+                for entry in feed.entries[:10]:
+                    articles.append({
+                        'title': entry.get('title', ''),
+                        'url': entry.get('link', ''),
+                        'content': entry.get('summary', ''),
+                        'source': feed_url.split('/')[-2],
+                        'published_at': datetime.utcnow()
+                    })
                 
                 logger.info(f"✅ RSS 크롤링 성공: {feed_url}")
                 
