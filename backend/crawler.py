@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 from typing import List, Dict
 import logging
-import feedparser
+import xml.etree.ElementTree as ET
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,11 +20,10 @@ class NewsCrawler:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
     
-    # ============ 뉴스 소스 1: HTML Parser로 RSS 크롤링 ============
+    # ============ 뉴스 소스 1: XML ElementTree로 RSS 크롤링 ============
     
-
     def crawl_financial_news_rss(self) -> List[Dict]:
-        """feedparser로 RSS 피드 수집"""
+        """ElementTree로 RSS 파싱 (외부 라이브러리 불필요)"""
         articles = []
         
         rss_feeds = [
@@ -35,18 +34,38 @@ class NewsCrawler:
         
         for feed_url in rss_feeds:
             try:
-                feed = feedparser.parse(feed_url)
+                response = self.session.get(feed_url, timeout=10, headers=self.headers)
+                response.encoding = 'utf-8'
                 
-                for entry in feed.entries[:10]:
-                    articles.append({
-                        'title': entry.get('title', ''),
-                        'url': entry.get('link', ''),
-                        'content': entry.get('summary', ''),
-                        'source': feed_url.split('/')[-2],
-                        'published_at': datetime.utcnow()
-                    })
+                # XML ElementTree 사용 (Python 내장)
+                root = ET.fromstring(response.content)
                 
-                logger.info(f"✅ RSS 크롤링 성공: {feed_url}")
+                # RSS 네임스페이스
+                ns = {'': 'http://www.rss.org/2.0/'}
+                
+                # item 태그 찾기
+                items = root.findall('.//item')
+                
+                for item in items[:10]:
+                    title_elem = item.find('title')
+                    link_elem = item.find('link')
+                    desc_elem = item.find('description')
+                    
+                    if title_elem is not None and link_elem is not None:
+                        title = title_elem.text or ''
+                        link = link_elem.text or ''
+                        desc = desc_elem.text if desc_elem is not None else ''
+                        
+                        if title and link:  # title과 link 모두 있을 때만
+                            articles.append({
+                                'title': title.strip(),
+                                'url': link.strip(),
+                                'content': desc.strip() if desc else '',
+                                'source': feed_url.split('/')[-2],
+                                'published_at': datetime.utcnow()
+                            })
+                
+                logger.info(f"✅ RSS 크롤링 성공: {feed_url} ({len([a for a in articles if feed_url.split('/')[-2] in a['source']])}개)")
                 
             except Exception as e:
                 logger.error(f"RSS 크롤링 실패 ({feed_url}): {str(e)}")
@@ -65,7 +84,6 @@ class NewsCrawler:
             return articles
         
         try:
-            # 금융 관련 기본 뉴스
             url = "https://finnhub.io/api/v1/news"
             params = {
                 "category": "finance",
@@ -77,7 +95,7 @@ class NewsCrawler:
             data = response.json()
             
             if 'data' in data:
-                for item in data['data'][:20]:  # 최대 20개
+                for item in data['data'][:20]:
                     articles.append({
                         'title': item.get('headline', ''),
                         'url': item.get('url', ''),
@@ -95,7 +113,7 @@ class NewsCrawler:
     # ============ 뉴스 소스 3: Naver 금융 ============
     
     def crawl_naver_finance(self) -> List[Dict]:
-        """네이버 금융 뉴스 수집 (html.parser 사용)"""
+        """네이버 금융 뉴스 수집"""
         articles = []
         
         try:
@@ -103,10 +121,7 @@ class NewsCrawler:
             response = self.session.get(url, timeout=10, headers=self.headers)
             response.encoding = 'utf-8'
             
-            # html.parser 사용
             soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # 메인 뉴스 항목
             news_items = soup.select("div.newsList > ul > li")
             
             logger.info(f"📰 네이버 뉴스 항목 찾음: {len(news_items)}개")
@@ -118,7 +133,6 @@ class NewsCrawler:
                         title = title_elem.get_text(strip=True)
                         news_url = title_elem.get('href', '')
                         
-                        # 상세 페이지에서 본문 크롤링
                         if news_url:
                             try:
                                 detail_response = self.session.get(
@@ -127,27 +141,23 @@ class NewsCrawler:
                                     headers=self.headers
                                 )
                                 detail_response.encoding = 'utf-8'
-                                
-                                # html.parser 사용
                                 detail_soup = BeautifulSoup(detail_response.content, 'html.parser')
                                 
-                                # 네이버 뉴스 본문
                                 content_elem = detail_soup.select_one("div#dic_area")
                                 content = content_elem.get_text(strip=True) if content_elem else ""
                                 
                                 articles.append({
                                     'title': title,
                                     'url': news_url,
-                                    'content': content[:1000],  # 첫 1000글자만
+                                    'content': content[:1000],
                                     'source': 'Naver Finance',
                                     'published_at': datetime.utcnow()
                                 })
                             except Exception as e:
-                                logger.debug(f"⚠️ 네이버 금융 상세 크롤링 실패: {str(e)}")
-                                # 상세 크롤링 실패해도 계속 진행
+                                logger.debug(f"⚠️ 네이버 상세 크롤링 실패: {str(e)}")
                                 continue
                 except Exception as e:
-                    logger.debug(f"⚠️ 네이버 뉴스 항목 처리 실패: {str(e)}")
+                    logger.debug(f"⚠️ 네이버 항목 처리 실패: {str(e)}")
                     continue
             
             if articles:
@@ -167,6 +177,11 @@ class NewsCrawler:
         
         try:
             for article_data in articles:
+                # URL이 비어있으면 스킵
+                if not article_data.get('url'):
+                    logger.warning(f"⏭️  URL 없음: {article_data['title'][:50]}")
+                    continue
+                
                 # 중복 확인
                 existing = db.query(Article).filter(
                     Article.source_url == article_data['url']
@@ -204,7 +219,6 @@ class NewsCrawler:
         
         all_articles = []
         
-        # 모든 소스에서 크롤링
         logger.info("📡 RSS 피드 크롤링 중...")
         all_articles.extend(self.crawl_financial_news_rss())
         
@@ -219,7 +233,6 @@ class NewsCrawler:
         if len(all_articles) == 0:
             logger.warning("⚠️ 수집된 기사가 없습니다. 나중에 다시 시도하세요.")
         
-        # DB에 저장
         self.save_to_db(all_articles)
 
 

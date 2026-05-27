@@ -9,4 +9,3 @@ sqlalchemy==2.0.23
 supabase==2.0.1
 psycopg2-binary
 lxml
-feedparser==6.0.10
