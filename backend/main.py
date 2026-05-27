@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import logging
 import os
+import asyncio
 
 from database import get_db, init_db, Article, Briefing, User, UserInterest, Stock
 from crawler import NewsCrawler
@@ -63,7 +64,11 @@ class UserInterestsResponse(BaseModel):
 async def startup_event():
     """앱 시작 시 실행"""
     logger.info("🚀 Vivepick 백엔드 시작")
-    #init_db()
+    try:
+        init_db()
+        logger.info("✅ 데이터베이스 초기화 성공")
+    except Exception as e:
+        logger.warning(f"⚠️ DB 초기화 실패 (개발 모드): {e}")
     start_scheduler()
 
 
@@ -71,6 +76,32 @@ async def startup_event():
 async def health_check():
     """헬스 체크"""
     return {"status": "ok", "timestamp": datetime.utcnow()}
+
+
+# ============ 크롤링 테스트 ============
+
+@app.get("/trigger-crawl")
+async def trigger_crawl():
+    """
+    백그라운드 크롤링 실행 (즉시 응답)
+    - Swift 앱에서 테스트용으로 사용
+    - 평소에는 스케줄러가 자동 실행 (09:00, 13:00, 17:00)
+    """
+    try:
+        asyncio.create_task(asyncio.to_thread(run_crawl_and_generate))
+        logger.info("🧪 테스트 크롤링 시작 (백그라운드)")
+        return {
+            "status": "crawling_started",
+            "message": "백그라운드에서 크롤링 시작됨. 1-2분 후 /briefings에서 데이터 확인",
+            "timestamp": datetime.utcnow()
+        }
+    except Exception as e:
+        logger.error(f"❌ 크롤링 시작 실패: {e}")
+        return {
+            "status": "failed",
+            "error": str(e),
+            "message": "크롤링 시작 실패"
+        }
 
 
 # ============ 브리핑 조회 ============
