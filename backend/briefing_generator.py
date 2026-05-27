@@ -15,7 +15,7 @@ class BriefingGenerator:
     """Claude API를 사용한 AI 브리핑 생성"""
     
     def __init__(self):
-        self.model = "claude-3-5-haiku-20241022"  # 비용 최적화를 위해 Haiku 사용
+        self.model = "	claude-haiku-4-5-20251001"  # 비용 최적화를 위해 Haiku 사용
         self.max_tokens = 800
     
     def generate_briefing(self, article_title: str, article_content: str) -> Dict:
