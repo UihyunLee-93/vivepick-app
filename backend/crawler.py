@@ -1,4 +1,6 @@
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 from database import SessionLocal, Article
 from datetime import datetime
@@ -10,14 +12,41 @@ logger = logging.getLogger(__name__)
 
 
 class NewsCrawler:
-    """금융 뉴스 크롤링 (완벽히 수정)"""
+    """금융 뉴스 크롤링 (강화된 버전 - 차단 우회)"""
     
     def __init__(self):
-        self.session = requests.Session()
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        self.timeout = 8
+        self.session = self._create_session()
+        self.timeout = 10
+    
+    def _create_session(self):
+        """재시도 로직이 있는 세션 생성"""
+        session = requests.Session()
+        
+        # ✅ User-Agent 강화 (봇 감지 우회)
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+            "Accept-Encoding": "gzip, deflate",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Cache-Control": "max-age=0"
+        })
+        
+        # ✅ 재시도 로직 (3회 재시도, 백오프 전략)
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+            backoff_factor=1
+        )
+        
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
+        return session
     
     # ============ 크롤링 소스 1: FN뉴스 RSS ============
     
@@ -33,7 +62,7 @@ class NewsCrawler:
         for feed_url in rss_feeds:
             try:
                 logger.info(f"   크롤링: {feed_url}")
-                response = self.session.get(feed_url, timeout=self.timeout, headers=self.headers)
+                response = self.session.get(feed_url, timeout=self.timeout)
                 response.encoding = 'utf-8'
                 
                 logger.info(f"   상태코드: {response.status_code}")
@@ -42,7 +71,6 @@ class NewsCrawler:
                     logger.warning(f"   ⚠️  HTTP {response.status_code}")
                     continue
                 
-                # ✅ HTML 파서로 XML 파싱 (더 관대함)
                 soup = BeautifulSoup(response.content, 'html.parser')
                 items = soup.find_all('item')
                 
@@ -52,7 +80,7 @@ class NewsCrawler:
                     logger.warning(f"   ⚠️  item 태그 없음")
                     continue
                 
-                for item in items[:15]:
+                for item in items[:20]:
                     try:
                         title_tag = item.find('title')
                         link_tag = item.find('link')
@@ -62,6 +90,7 @@ class NewsCrawler:
                         link = (link_tag.text or '').strip() if link_tag else ''
                         desc = (desc_tag.text or '').strip() if desc_tag else ''
                         
+                        # ❌ 영문 제목 필터링
                         if not (title and link and self._has_korean(title)):
                             continue
                         
@@ -76,10 +105,13 @@ class NewsCrawler:
                         logger.debug(f"   항목 오류: {str(e)}")
                         continue
                 
-                logger.info(f"   수집: {len([a for a in articles if a['source'] == 'FN뉴스'])}개")
+                fn_count = len([a for a in articles if a['source'] == 'FN뉴스'])
+                logger.info(f"   수집: {fn_count}개")
                 
             except requests.Timeout:
                 logger.warning(f"   ⏱️  타임아웃")
+            except requests.ConnectionError as e:
+                logger.error(f"   ❌ 연결 오류: {str(e)}")
             except Exception as e:
                 logger.error(f"   ❌ 오류: {str(e)}")
         
@@ -95,7 +127,7 @@ class NewsCrawler:
             url = "https://finance.naver.com/news/mainnews.naver"
             logger.info(f"   크롤링: {url}")
             
-            response = self.session.get(url, timeout=self.timeout, headers=self.headers)
+            response = self.session.get(url, timeout=self.timeout)
             response.encoding = 'utf-8'
             
             logger.info(f"   상태코드: {response.status_code}")
@@ -105,13 +137,22 @@ class NewsCrawler:
                 return articles
             
             soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # ✅ 여러 선택자 시도 (구조 변경 대응)
             news_items = soup.select("div.newsList > ul > li")
+            if not news_items:
+                news_items = soup.select("li.newItem")
+            if not news_items:
+                news_items = soup.select("tr")[:30]
             
             logger.info(f"   발견: {len(news_items)}개 항목")
             
-            for item in news_items[:20]:
+            for item in news_items[:25]:
                 try:
                     title_elem = item.select_one("a.nclicks")
+                    if not title_elem:
+                        title_elem = item.select_one("a")
+                    
                     if not title_elem:
                         continue
                     
@@ -137,6 +178,8 @@ class NewsCrawler:
                 
         except requests.Timeout:
             logger.warning(f"   ⏱️  타임아웃")
+        except requests.ConnectionError as e:
+            logger.error(f"   ❌ 연결 오류: {str(e)}")
         except Exception as e:
             logger.error(f"   ❌ 오류: {str(e)}")
         
@@ -149,52 +192,69 @@ class NewsCrawler:
         articles = []
         
         try:
-            url = "https://www.economist.co.kr/feed"
-            logger.info(f"   크롤링: {url}")
+            # ✅ 도메인 변경 대응
+            urls = [
+                "https://www.economist.co.kr/feed",
+                "https://economist.co.kr/feed",
+            ]
             
-            response = self.session.get(url, timeout=self.timeout, headers=self.headers)
-            response.encoding = 'utf-8'
-            
-            logger.info(f"   상태코드: {response.status_code}")
-            
-            if response.status_code != 200:
-                logger.warning(f"   ⚠️  HTTP {response.status_code}")
-                return articles
-            
-            soup = BeautifulSoup(response.content, 'html.parser')
-            items = soup.find_all('item')
-            
-            logger.info(f"   발견: {len(items)}개 항목")
-            
-            for item in items[:10]:
+            for url in urls:
                 try:
-                    title_tag = item.find('title')
-                    link_tag = item.find('link')
-                    desc_tag = item.find('description')
+                    logger.info(f"   크롤링: {url}")
+                    response = self.session.get(url, timeout=self.timeout)
+                    response.encoding = 'utf-8'
                     
-                    title = (title_tag.text or '').strip() if title_tag else ''
-                    link = (link_tag.text or '').strip() if link_tag else ''
-                    desc = (desc_tag.text or '').strip() if desc_tag else ''
+                    logger.info(f"   상태코드: {response.status_code}")
                     
-                    if not (title and link and self._has_korean(title)):
+                    if response.status_code != 200:
+                        logger.debug(f"   ⚠️  HTTP {response.status_code}")
                         continue
                     
-                    articles.append({
-                        'title': title,
-                        'url': link,
-                        'content': desc if len(desc) > 30 else title,
-                        'source': '이코노미스트',
-                        'published_at': datetime.utcnow()
-                    })
-                except:
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    items = soup.find_all('item')
+                    
+                    logger.info(f"   발견: {len(items)}개 항목")
+                    
+                    if not items:
+                        logger.debug(f"   ⚠️  item 태그 없음")
+                        continue
+                    
+                    for item in items[:15]:
+                        try:
+                            title_tag = item.find('title')
+                            link_tag = item.find('link')
+                            desc_tag = item.find('description')
+                            
+                            title = (title_tag.text or '').strip() if title_tag else ''
+                            link = (link_tag.text or '').strip() if link_tag else ''
+                            desc = (desc_tag.text or '').strip() if desc_tag else ''
+                            
+                            if not (title and link and self._has_korean(title)):
+                                continue
+                            
+                            articles.append({
+                                'title': title,
+                                'url': link,
+                                'content': desc if len(desc) > 30 else title,
+                                'source': '이코노미스트',
+                                'published_at': datetime.utcnow()
+                            })
+                        except:
+                            continue
+                    
+                    if articles:
+                        logger.info(f"   수집: {len(articles)}개")
+                        break  # 성공하면 다음 URL 시도 안 함
+                
+                except requests.Timeout:
+                    logger.debug(f"   ⏱️  타임아웃")
                     continue
-            
-            logger.info(f"   수집: {len(articles)}개")
+                except Exception as e:
+                    logger.debug(f"   ❌ 오류: {str(e)}")
+                    continue
         
-        except requests.Timeout:
-            logger.warning(f"   ⏱️  타임아웃")
         except Exception as e:
-            logger.error(f"   ❌ 오류: {str(e)}")
+            logger.error(f"   ❌ 전체 오류: {str(e)}")
         
         return articles
     
@@ -266,7 +326,7 @@ class NewsCrawler:
         start_time = time.time()
         
         logger.info("\n" + "="*60)
-        logger.info("🔄 크롤링 시작")
+        logger.info("🔄 크롤링 시작 (강화된 버전)")
         logger.info("="*60)
         
         all_articles = []
@@ -274,18 +334,15 @@ class NewsCrawler:
         try:
             # Step 1
             logger.info("\n📡 Step 1: FN뉴스 RSS")
-            fn_articles = self.crawl_fn_news_rss()
-            all_articles.extend(fn_articles)
+            all_articles.extend(self.crawl_fn_news_rss())
             
             # Step 2
             logger.info("\n📡 Step 2: 네이버금융")
-            naver_articles = self.crawl_naver_finance()
-            all_articles.extend(naver_articles)
+            all_articles.extend(self.crawl_naver_finance())
             
             # Step 3
             logger.info("\n📡 Step 3: 이코노미스트")
-            econ_articles = self.crawl_economist_rss()
-            all_articles.extend(econ_articles)
+            all_articles.extend(self.crawl_economist_rss())
             
         except Exception as e:
             logger.error(f"❌ 크롤링 중 오류: {str(e)}")
@@ -299,7 +356,6 @@ class NewsCrawler:
             logger.info("="*60 + "\n")
             return
         
-        # DB 저장
         logger.info("💾 DB 저장 중...")
         self.save_to_db(all_articles)
         
