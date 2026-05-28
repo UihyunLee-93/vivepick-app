@@ -43,12 +43,13 @@ class Briefing(Base):
     id = Column(BigInteger, primary_key=True, index=True)
     article_id = Column(BigInteger, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False)
     ai_summary = Column(Text, nullable=False)
-    main_story = Column(Text, nullable=True)  # ✅ 새로 추가: 2-3문장 메인 스토리
-    positive_points = Column(ARRAY(String), nullable=False, default=[])  # watch_points로 사용
+    main_story = Column(Text, nullable=True)  # ✅ 새로 추가
+    positive_points = Column(ARRAY(String), nullable=False, default=[])
     negative_points = Column(ARRAY(String), nullable=False, default=[])
     related_stocks = Column(ARRAY(String), nullable=False, default=[], index=True)
     related_sectors = Column(ARRAY(String), nullable=False, default=[], index=True)
-    mood = Column(String(20), nullable=True, index=True)
+    mood = Column(String(20), nullable=True)  # ✅ 새로 추가
+    time_slot = Column(String(20), nullable=True)  # ✅ 새로 추가
     generated_at = Column(DateTime, default=datetime.utcnow)
     
     # 관계
@@ -64,7 +65,7 @@ class Stock(Base):
     name_ko = Column(String(100), nullable=False)
     name_en = Column(String(100))
     sector = Column(String(50), index=True)
-    market = Column(String(20))
+    market = Column(String(20))  # KOSPI, KOSDAQ, NASDAQ
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
