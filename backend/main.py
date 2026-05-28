@@ -8,7 +8,7 @@ import logging
 import os
 import asyncio
 
-from database import get_db, init_db, Article, Briefing, User, UserInterest, Stock
+from database import get_db, init_db, Article, Briefing, User, UserInterest, Stock, SessionLocal
 from crawler import NewsCrawler
 from briefing_generator import BriefingGenerator
 
