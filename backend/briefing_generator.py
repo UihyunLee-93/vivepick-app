@@ -65,7 +65,6 @@ class BriefingGenerator:
             for article in articles
         ])
         
-        # 시간대별 톤 설정
         time_context = {
             "morning": "출근길에 읽을 수 있는 '오늘 뭘 봐야 하나?' 관점",
             "noon": "점심시간에 읽을 수 있는 '지금 뭐가 일어나고 있나?' 관점",
@@ -206,7 +205,7 @@ JSON만 응답하세요 (설명 없음)
             return None
     
     def save_category_briefing(self, db, briefing_data: dict, articles: list):
-        """카테고리 브리핑을 DB에 저장"""
+        """카테고리 브리핑을 DB에 저장 (mood 정규화)"""
         
         if not briefing_data or not articles:
             return
@@ -214,23 +213,38 @@ JSON만 응답하세요 (설명 없음)
         try:
             article = articles[0]
             
+            # ✅ mood 값 정규화 (다양한 형식 대응)
+            mood_raw = briefing_data.get("mood", "neutral")
+            
+            # 한글 → 영문 변환 + 소문자 정규화
             mood_map = {
                 "긍정적": "positive",
                 "중립": "neutral",
-                "부정적": "negative"
+                "부정적": "negative",
+                "positive": "positive",
+                "neutral": "neutral",
+                "negative": "negative"
             }
-            mood_ko = briefing_data.get("mood", "중립")
-            mood_en = mood_map.get(mood_ko, "neutral")
             
-            # ✅ main_story + watch_points를 한데 저장
-            detail = briefing_data.get("main_story", "")
-            watch_points_text = " | ".join(briefing_data.get("watch_points", []))
-            full_summary = f"{detail}\n\n📌 체크포인트: {watch_points_text}"
+            # 정확한 매칭 먼저 시도
+            mood_en = mood_map.get(mood_raw)
+            
+            # 없으면 소문자로 통일해서 시도
+            if not mood_en:
+                mood_lower = str(mood_raw).lower().strip()
+                mood_en = mood_map.get(mood_lower, "neutral")
+            
+            # 그래도 없으면 기본값
+            if not mood_en:
+                mood_en = "neutral"
+            
+            logger.info(f"   mood 변환: '{mood_raw}' → '{mood_en}'")
             
             new_briefing = Briefing(
                 article_id=article.id,
                 ai_summary=briefing_data.get("headline", ""),
-                positive_points=briefing_data.get("watch_points", []),  # watch_points 활용
+                main_story=briefing_data.get("main_story", ""),
+                positive_points=briefing_data.get("watch_points", []),
                 negative_points=[briefing_data.get("investor_sentiment", "")],
                 related_stocks=briefing_data.get("related_stocks", []),
                 related_sectors=[briefing_data.get("category", "")],
@@ -239,7 +253,7 @@ JSON만 응답하세요 (설명 없음)
             
             db.add(new_briefing)
             db.commit()
-            logger.info(f"   💾 저장 완료 (분위기: {mood_ko})\n")
+            logger.info(f"   💾 저장 완료 (분위기: {mood_en})\n")
             
         except Exception as e:
             db.rollback()
@@ -268,7 +282,6 @@ JSON만 응답하세요 (설명 없음)
                 
                 logger.info(f"📂 {category} ({len(articles)}개 신규 기사)")
                 
-                # 시간대별로 다른 톤으로 분석
                 briefing_data = self.generate_category_briefing(category, articles, slot=slot)
                 
                 if briefing_data:
@@ -289,8 +302,4 @@ JSON만 응답하세요 (설명 없음)
 
 if __name__ == "__main__":
     generator = BriefingGenerator()
-    
-    # 테스트: 시간대별 생성
     generator.process_categories(slot="morning")
-    # generator.process_categories(slot="noon")
-    # generator.process_categories(slot="night")
