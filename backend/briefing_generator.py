@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 client = Anthropic()
 
 
-class CategoryBriefingGenerator:
+class BriefingGenerator:
     """VibePick 카테고리별 종합 분석 브리핑"""
     
     def __init__(self):
@@ -275,5 +275,5 @@ class CategoryBriefingGenerator:
 
 
 if __name__ == "__main__":
-    generator = CategoryBriefingGenerator()
+    generator = BriefingGenerator()
     generator.process_categories()
