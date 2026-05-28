@@ -65,6 +65,10 @@ class BriefingGenerator:
         
         result = {}
         for cat, cat_articles in categorized.items():
+            if cat == "기타":  # ✅ 기타는 제외
+                logger.info(f"⏭️  기타: {len(cat_articles)}개 (분석 스킵)")
+                continue
+            
             if len(cat_articles) >= 1:
                 result[cat] = cat_articles[:10]
             else:
