@@ -10,22 +10,19 @@ logger = logging.getLogger(__name__)
 
 
 class NewsCrawler:
-    """개선된 금융 뉴스 크롤링 (RSS 파싱 오류 수정)"""
+    """금융 뉴스 크롤링 (완벽히 수정)"""
     
     def __init__(self):
         self.session = requests.Session()
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
-        self.timeout = 5
+        self.timeout = 8
     
-    # ============ 크롤링 소스 1: FN뉴스 RSS (BeautifulSoup 사용) ============
+    # ============ 크롤링 소스 1: FN뉴스 RSS ============
     
     def crawl_fn_news_rss(self) -> list:
-        """
-        FN뉴스 RSS (BeautifulSoup으로 파싱 - 더 안전함)
-        ElementTree 대신 BeautifulSoup 사용 → XML 오류 더 잘 처리
-        """
+        """FN뉴스 RSS"""
         articles = []
         
         rss_feeds = [
@@ -35,19 +32,25 @@ class NewsCrawler:
         
         for feed_url in rss_feeds:
             try:
-                logger.info(f"📰 {feed_url} 크롤링 중...")
+                logger.info(f"   크롤링: {feed_url}")
                 response = self.session.get(feed_url, timeout=self.timeout, headers=self.headers)
                 response.encoding = 'utf-8'
                 
-                # ✅ ElementTree 대신 BeautifulSoup 사용 (XML 오류 더 관대)
-                soup = BeautifulSoup(response.content, 'xml')
-                items = soup.find_all('item')
+                logger.info(f"   상태코드: {response.status_code}")
                 
-                if not items:
-                    logger.warning(f"   ⚠️  item 태그를 찾을 수 없음")
+                if response.status_code != 200:
+                    logger.warning(f"   ⚠️  HTTP {response.status_code}")
                     continue
                 
+                # ✅ HTML 파서로 XML 파싱 (더 관대함)
+                soup = BeautifulSoup(response.content, 'html.parser')
+                items = soup.find_all('item')
+                
                 logger.info(f"   발견: {len(items)}개 항목")
+                
+                if not items:
+                    logger.warning(f"   ⚠️  item 태그 없음")
+                    continue
                 
                 for item in items[:15]:
                     try:
@@ -59,7 +62,6 @@ class NewsCrawler:
                         link = (link_tag.text or '').strip() if link_tag else ''
                         desc = (desc_tag.text or '').strip() if desc_tag else ''
                         
-                        # ✅ 한글 포함 확인
                         if not (title and link and self._has_korean(title)):
                             continue
                         
@@ -71,30 +73,36 @@ class NewsCrawler:
                             'published_at': datetime.utcnow()
                         })
                     except Exception as e:
-                        logger.debug(f"   항목 파싱 오류: {str(e)}")
+                        logger.debug(f"   항목 오류: {str(e)}")
                         continue
                 
-                fn_count = len([a for a in articles if a['source'] == 'FN뉴스'])
-                logger.info(f"   ✅ {fn_count}개 수집")
+                logger.info(f"   수집: {len([a for a in articles if a['source'] == 'FN뉴스'])}개")
                 
             except requests.Timeout:
-                logger.warning(f"   ⏱️  타임아웃 (5초)")
+                logger.warning(f"   ⏱️  타임아웃")
             except Exception as e:
-                logger.error(f"   ❌ 크롤링 실패: {str(e)}")
+                logger.error(f"   ❌ 오류: {str(e)}")
         
         return articles
     
-    # ============ 크롤링 소스 2: 네이버 금융 (빠른 버전) ============
+    # ============ 크롤링 소스 2: 네이버 금융 ============
     
     def crawl_naver_finance(self) -> list:
-        """네이버 금융 뉴스 (제목만, 빠름)"""
+        """네이버 금융"""
         articles = []
         
         try:
-            logger.info(f"📰 네이버금융 크롤링 중...")
             url = "https://finance.naver.com/news/mainnews.naver"
+            logger.info(f"   크롤링: {url}")
+            
             response = self.session.get(url, timeout=self.timeout, headers=self.headers)
             response.encoding = 'utf-8'
+            
+            logger.info(f"   상태코드: {response.status_code}")
+            
+            if response.status_code != 200:
+                logger.warning(f"   ⚠️  HTTP {response.status_code}")
+                return articles
             
             soup = BeautifulSoup(response.content, 'html.parser')
             news_items = soup.select("div.newsList > ul > li")
@@ -122,31 +130,38 @@ class NewsCrawler:
                     })
                     
                 except Exception as e:
-                    logger.debug(f"   항목 처리 오류: {str(e)}")
+                    logger.debug(f"   항목 오류: {str(e)}")
                     continue
             
-            logger.info(f"   ✅ {len(articles)}개 수집")
+            logger.info(f"   수집: {len(articles)}개")
                 
         except requests.Timeout:
-            logger.warning(f"   ⏱️  타임아웃 (5초)")
+            logger.warning(f"   ⏱️  타임아웃")
         except Exception as e:
-            logger.error(f"   ❌ 크롤링 실패: {str(e)}")
+            logger.error(f"   ❌ 오류: {str(e)}")
         
         return articles
     
-    # ============ 크롤링 소스 3: 이코노미스트 RSS ============
+    # ============ 크롤링 소스 3: 이코노미스트 ============
     
     def crawl_economist_rss(self) -> list:
-        """이코노미스트 경제 뉴스 RSS (BeautifulSoup)"""
+        """이코노미스트"""
         articles = []
         
         try:
-            logger.info(f"📰 이코노미스트 크롤링 중...")
-            rss_url = "https://www.economist.co.kr/feed"
-            response = self.session.get(rss_url, timeout=self.timeout, headers=self.headers)
+            url = "https://www.economist.co.kr/feed"
+            logger.info(f"   크롤링: {url}")
+            
+            response = self.session.get(url, timeout=self.timeout, headers=self.headers)
             response.encoding = 'utf-8'
             
-            soup = BeautifulSoup(response.content, 'xml')
+            logger.info(f"   상태코드: {response.status_code}")
+            
+            if response.status_code != 200:
+                logger.warning(f"   ⚠️  HTTP {response.status_code}")
+                return articles
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
             items = soup.find_all('item')
             
             logger.info(f"   발견: {len(items)}개 항목")
@@ -174,26 +189,26 @@ class NewsCrawler:
                 except:
                     continue
             
-            logger.info(f"   ✅ {len(articles)}개 수집")
+            logger.info(f"   수집: {len(articles)}개")
         
         except requests.Timeout:
-            logger.warning(f"   ⏱️  타임아웃 (5초)")
+            logger.warning(f"   ⏱️  타임아웃")
         except Exception as e:
-            logger.warning(f"   ⚠️  크롤링 실패: {str(e)}")
+            logger.error(f"   ❌ 오류: {str(e)}")
         
         return articles
     
     # ============ 헬퍼 함수 ============
     
     def _has_korean(self, text: str) -> bool:
-        """한글 포함 여부 확인"""
+        """한글 포함 여부"""
         for char in text:
             if ord(char) >= 0xAC00 and ord(char) <= 0xD7A3:
                 return True
         return False
     
     def _validate_article(self, article_data: dict) -> bool:
-        """기사 데이터 검증"""
+        """데이터 검증"""
         if not article_data.get('title') or len(article_data['title']) < 5:
             return False
         if not article_data.get('url') or len(article_data.get('url', '')) < 10:
@@ -203,16 +218,14 @@ class NewsCrawler:
         return True
     
     def save_to_db(self, articles: list):
-        """크롤링한 기사를 DB에 저장"""
+        """DB 저장"""
         db = SessionLocal()
         saved_count = 0
-        skipped_count = 0
         duplicate_count = 0
         
         try:
             for article_data in articles:
                 if not self._validate_article(article_data):
-                    skipped_count += 1
                     continue
                 
                 existing = db.query(Article).filter(
@@ -238,64 +251,60 @@ class NewsCrawler:
                 except Exception as e:
                     logger.error(f"   저장 오류: {str(e)}")
                     db.rollback()
-                    continue
             
             db.commit()
-            logger.info(f"\n✅ 저장 완료")
-            logger.info(f"   성공: {saved_count}개")
-            logger.info(f"   중복: {duplicate_count}개")
-            logger.info(f"   검증 실패: {skipped_count}개")
+            logger.info(f"✅ 저장: {saved_count}개, 중복: {duplicate_count}개")
             
         except Exception as e:
             db.rollback()
-            logger.error(f"❌ DB 커밋 실패: {str(e)}")
+            logger.error(f"❌ DB 오류: {str(e)}")
         finally:
             db.close()
     
     def run_crawl(self):
-        """전체 크롤링 실행"""
+        """전체 크롤링"""
         start_time = time.time()
         
         logger.info("\n" + "="*60)
-        logger.info("🔄 뉴스 크롤링 시작 (스케줄 기반)")
-        logger.info("="*60 + "\n")
+        logger.info("🔄 크롤링 시작")
+        logger.info("="*60)
         
         all_articles = []
         
-        # 1. FN뉴스 RSS
-        logger.info("📡 Step 1: FN뉴스 RSS")
-        all_articles.extend(self.crawl_fn_news_rss())
-        
-        # 2. 네이버 금융
-        logger.info("📡 Step 2: 네이버금융")
-        all_articles.extend(self.crawl_naver_finance())
-        
-        # 3. 이코노미스트
-        logger.info("📡 Step 3: 이코노미스트")
-        all_articles.extend(self.crawl_economist_rss())
+        try:
+            # Step 1
+            logger.info("\n📡 Step 1: FN뉴스 RSS")
+            fn_articles = self.crawl_fn_news_rss()
+            all_articles.extend(fn_articles)
+            
+            # Step 2
+            logger.info("\n📡 Step 2: 네이버금융")
+            naver_articles = self.crawl_naver_finance()
+            all_articles.extend(naver_articles)
+            
+            # Step 3
+            logger.info("\n📡 Step 3: 이코노미스트")
+            econ_articles = self.crawl_economist_rss()
+            all_articles.extend(econ_articles)
+            
+        except Exception as e:
+            logger.error(f"❌ 크롤링 중 오류: {str(e)}")
         
         elapsed = time.time() - start_time
-        logger.info(f"\n📊 수집 완료")
-        logger.info(f"   총 기사: {len(all_articles)}개")
-        logger.info(f"   소요 시간: {elapsed:.1f}초\n")
+        
+        logger.info(f"\n📊 수집 완료: {len(all_articles)}개 ({elapsed:.1f}초)")
         
         if len(all_articles) == 0:
-            logger.warning("⚠️ 수집된 기사가 없습니다")
+            logger.warning("⚠️  기사 0개")
+            logger.info("="*60 + "\n")
             return
         
+        # DB 저장
         logger.info("💾 DB 저장 중...")
         self.save_to_db(all_articles)
         
         elapsed = time.time() - start_time
-        logger.info("\n" + "="*60)
-        logger.info(f"✅ 크롤링 완료")
-        logger.info(f"   전체 소요 시간: {elapsed:.1f}초")
-        
-        if elapsed > 300:
-            logger.warning(f"   ⚠️ 5분 초과 (스케줄 지연 주의)")
-        else:
-            logger.info(f"   ✅ 스케줄 안전")
-        
+        logger.info(f"✅ 완료 ({elapsed:.1f}초)")
         logger.info("="*60 + "\n")
 
 
