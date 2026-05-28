@@ -4,6 +4,7 @@ import logging
 from anthropic import Anthropic
 from database import SessionLocal, Article, Briefing
 from datetime import datetime
+from collections import defaultdict
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -11,141 +12,164 @@ logger = logging.getLogger(__name__)
 client = Anthropic()
 
 
-class BriefingGenerator:
-    """VibePick 감정형 브리핑 - 현실적인 감정 분석 (개선판)"""
+class CategoryBriefingGenerator:
+    """VibePick 카테고리별 종합 분석 브리핑"""
     
     def __init__(self):
         self.model = "claude-opus-4-6"
-        self.max_tokens = 500
+        self.max_tokens = 800
     
-    def generate_briefing(self, article_title: str, article_content: str) -> dict:
-        """현실적인 감정형 브리핑 생성 (부정적 뉴스 강화)"""
+    def get_articles_by_category(self, db) -> dict:
+        """카테고리별로 기사 그룹화 (최근 5개씩)"""
+        articles = db.query(Article).order_by(
+            Article.crawled_at.desc()
+        ).limit(50).all()
         
-        prompt = f"""당신은 투자자의 심리를 읽는 시장 브리핑 전문가입니다.
-뉴스를 읽고 "지금 투자자들이 어떻게 느낄지" 정직하게 표현하세요.
-**절대** 모든 뉴스를 긍정적으로만 쓰지 마세요!
+        # source_name에서 카테고리 추출: "네이버뉴스 - AI · 기술"
+        categorized = defaultdict(list)
+        for article in articles:
+            if " - " in article.source_name:
+                category = article.source_name.split(" - ")[-1]
+            else:
+                category = "기타"
+            
+            categorized[category].append(article)
+        
+        # 각 카테고리별 5개씩만 유지
+        return {cat: articles[:5] for cat, articles in categorized.items()}
+    
+    def generate_category_briefing(self, category: str, articles: list) -> dict:
+        """카테고리별 종합 분석 브리핑 생성"""
+        
+        # 기사들을 요약 문자열로
+        articles_summary = "\n".join([
+            f"- {article.title}: {article.original_content[:300]}"
+            for article in articles
+        ])
+        
+        prompt = f"""당신은 시장 트렌드 분석가입니다.
+다음 카테고리의 최근 기사들을 분석하고,
+**그 카테고리의 현재 시장 흐름과 트렌드**를 종합 분석하세요.
 
-[뉴스 제목]
-{article_title}
+[카테고리] {category}
 
-[뉴스 내용]
-{article_content[:1200]}
+[최근 기사 {len(articles)}개]
+{articles_summary}
 
-## 🎯 분석 규칙:
+## 📊 분석 요구사항:
 
-### 1️⃣ 분위기 판단 (정직하게!)
-- **부정적 뉴스** (우선순위 높음):
-  * 금리인상 / 금리 인상 기대 → 부정적 (대출 부담↑)
-  * 경기둔화 / 경기 악화 / 경기 둔화 신호 → 부정적
-  * 규제 / 규제 강화 / 수사 / 적발 → 부정적
-  * 부실 / 부도 / 손실 / 악화 → 부정적
-  * 하락 / 하향 / 조정 / 낙폭 → 부정적
-  * 구조조정 / 감원 / 폐지 → 부정적
+### 1️⃣ 카테고리 분위기
+현재 이 섹터의 시장 심리를 평가하세요.
+- **긍정적**: 수요 증가, 기술 혁신, 호실적 지속 등
+- **중립**: 기다리는 중, 엇갈린 신호, 통합 구간 등
+- **부정적**: 규제, 경기 부진, 공급 부족 등
 
-- **긍정적 뉴스** (명확할 때만):
-  * 기술 혁신 / AI 성장 / 신기술 도입 → 긍정적
-  * 호실적 / 매출 증가 / 이익 성장 (30% 이상) → 긍정적
-  * 투자 유입 / 펀딩 성공 → 긍정적
-  * 상승 / 강세 / 랠리 → 긍정적
-  * 신제품 출시 (성공 가능성 높을 때) → 긍정적
-
-- **중립 뉴스** (판단 어려울 때):
-  * 정책 분석 / 평가 / 전망 → 중립
-  * 실적 발표 (평범한 수준) → 중립
-  * 인사 / 임원 교체 → 중립
-  * 제휴 / 협약 (효과 미미) → 중립
-
-### 2️⃣ 한 줄 헤드라인 (15자 이내, 이모지 필수 1개만)
-- **부정적**: "금리인상 임박, 차입금 부담 📉" (14자)
-- **긍정적**: "AI 수요 폭발 🚀" (9자)
-- **중립**: "실적 발표, 평범한 수준" (11자)
-
-**중요: 이모지는 필수 1개만! 너무 많으면 게임처럼 보임**
-- 긍정: 🚀 📈 💪 ⚡ (둘 중 1개만)
-- 부정: 📉 ⚠️ 💔 🔴 (둘 중 1개만)
-- 중립: → ◀ ▶ 📊 (둘 중 1개만)
-
-### 3️⃣ 오늘 포인트 (정확히 3개, 각 15자 이내)
+### 2️⃣ 핵심 흐름 (20자 이내, 이모지 1개)
 ```
-예시 (부정적 뉴스):
-["금리 비용 증가 위험", "대출 상환 부담 확대", "변동성 높아질 우려"]
-
-예시 (긍정적 뉴스):
-["주요 기업 발주 재개", "공급 부족 지속", "가격 인상 여력"]
-
-예시 (중립 뉴스):
-["분기 실적 발표", "시장 반응 주목", "향후 전망 중요"]
+예시:
+- AI: "수요 폭발, 공급 경쟁 시작 🚀" (16자)
+- 금융: "금리 인상 기다림, 변동성 확대 ⚠️" (18자)
+- 에너지: "유가 변동성 높음, 관망 중 →" (16자)
 ```
 
-### 4️⃣ 관련 종목 (2-3개만, 실제 상장사)
+### 3️⃣ 트렌드 분석 (정확히 3개)
+최근 기사에서 보이는 주요 트렌드:
 ```
-부정적: ["은행주", "금융사"]
-긍정적: ["삼성전자", "SK하이닉스"]
-중립: ["실적 관련사", "정책 대상 기업"]
+예시 (AI · 기술):
+1. "AI 칩 수요 사상 최고 기록"
+2. "공급사 확대 투자 경쟁 심화"
+3. "가격 인상 여력 확대"
+
+예시 (금융):
+1. "금리 인상 예상에 대출 수요 축소"
+2. "은행권 수익성 개선 기대"
+3. "환율 변동성 확대 중"
 ```
 
-### 5️⃣ 투자 심리 (1문장, 투자자 관점)
+### 4️⃣ 관련 주요 종목 (3-5개)
+최근 기사에 언급된 주요 기업들:
 ```
-부정적: "금리 인상 여파로 매도 압박 가능"
-긍정적: "AI 성장 이야기로 매수 관심 확대"
-중립: "실적 발표 후 방향성 결정 예상"
+예시:
+["삼성전자", "SK하이닉스", "엔비디아", "현대차", "LG전자"]
+```
+
+### 5️⃣ 투자자 심리 (2-3문장)
+이 카테고리에 투자하는 사람들이 지금 어떤 심리 상태인지:
+```
+예시 (AI · 기술):
+"AI 붐이 지속될 것으로 보고 매수 심리 강함. 
+다만 밸류에이션 우려로 변동성 큼. 
+기술주 중심으로 양극화 진행 중"
+
+예시 (금융):
+"금리 인상 시나리오에 조심스러운 관망 중.
+은행주 수익성 개선은 기대하나,
+대출 성장 부진이 상쇄 효과"
 ```
 
 ## 📋 JSON 응답 형식 (반드시 JSON만):
 {{
+    "category": "{category}",
     "mood": "긍정적|중립|부정적",
-    "headline": "15자 이내 (이모지 1개)",
-    "today_points": ["15자 이내", "15자 이내", "15자 이내"],
-    "related_stocks": ["종목1", "종목2"],
-    "investor_feeling": "투자자 심리 1문장"
+    "headline": "20자 이내 (이모지 1개)",
+    "trends": [
+        "트렌드 1 (15자 이내)",
+        "트렌드 2 (15자 이내)",
+        "트렌드 3 (15자 이내)"
+    ],
+    "related_stocks": ["종목1", "종목2", "종목3"],
+    "investor_sentiment": "투자자 심리 2-3문장"
 }}
-
-## ❌ 피해야 할 예시:
-```json
-{{
-    "mood": "긍정적",
-    "headline": "모든 좋은 뉴스다!! 🚀🚀📈💪⚡",  // ❌ 너무 많은 이모지
-    "today_points": ["포인트1", "포인트2"],  // ❌ 2개만 있음 (3개 필요)
-    "related_stocks": [],  // ❌ 종목 없음
-    "investor_feeling": ""  // ❌ 빔
-}}
-```
 
 ## ✅ 좋은 예시:
 
-### 부정적 뉴스: "한은 기준금리 7월 인상 시사"
+### AI · 기술 카테고리
 {{
-    "mood": "부정적",
-    "headline": "금리인상 임박, 차입금 부담 📉",
-    "today_points": ["금리 비용 증가 위험", "대출 상환 부담 확대", "변동성 높아질 우려"],
-    "related_stocks": ["은행주", "금융사"],
-    "investor_feeling": "금리 인상 여파로 매도 압박 가능, 신중한 진입 필요"
-}}
-
-### 긍정적 뉴스: "삼성전자 AI칩 매출 급증, 영업이익 49% 증가"
-{{
+    "category": "AI · 기술",
     "mood": "긍정적",
-    "headline": "AI 수요 폭발 🚀",
-    "today_points": ["AI칩 공급 부족 영속", "가격 인상 여력 있어", "경쟁사보다 우위 확보"],
-    "related_stocks": ["삼성전자", "SK하이닉스"],
-    "investor_feeling": "AI 붐 장기화 기대, 반도체 종목 강세 지속 가능"
+    "headline": "AI 수요 폭발, 공급 경쟁 심화 🚀",
+    "trends": [
+        "AI 칩 수요 사상 최고",
+        "공급사 확대 투자 경쟁",
+        "가격 인상 여력 확대"
+    ],
+    "related_stocks": ["삼성전자", "SK하이닉스", "엔비디아"],
+    "investor_sentiment": "AI 성장 스토리로 매수 심화. 다만 밸류에이션 우려로 변동성 커짐. 기술주 양극화 중"
 }}
 
-### 중립 뉴스: "분기 실적 공개, 시장 평가"
+### 금융 카테고리
 {{
+    "category": "금융",
     "mood": "중립",
-    "headline": "분기 실적, 시장 반응 주목 →",
-    "today_points": ["실적 발표 시장 영향", "투자자 평가 분기점", "향후 가이던스 중요"],
-    "related_stocks": ["실적 관련사", "대형주"],
-    "investor_feeling": "실적 수준에 따라 단기 방향성 결정될 가능성"
+    "headline": "금리 인상 시장, 수익성 기대 vs 대출 부담 ⚖️",
+    "trends": [
+        "금리 인상 시나리오 진행",
+        "은행 수익성 개선 기대",
+        "대출 수요 축소 우려"
+    ],
+    "related_stocks": ["KB금융", "신한지주", "하나금융"],
+    "investor_sentiment": "금리 인상 혜택 기대하나 대출 부진 우려. 은행주 변동성 클 전망. 선별 투자 중"
 }}
 
-## 🎯 절대 지켜야 할 것:
-- JSON만 응답 (마크다운, 설명 없음)
-- 부정적 뉴스도 정직하게 표시
-- 이모지는 정확히 1개만
-- 포인트는 정확히 3개
-- 종목은 2-3개 (실제 존재하는 회사만)
+### 에너지 카테고리
+{{
+    "category": "에너지",
+    "mood": "부정적",
+    "headline": "유가 약세, 공급 과잉 신호 📉",
+    "trends": [
+        "국제유가 하락 추세",
+        "공급 과잉 우려 확산",
+        "정제 마진 축소 중"
+    ],
+    "related_stocks": ["S-Oil", "SK이노베이션", "GS칼텍스"],
+    "investor_sentiment": "유가 약세로 에너지주 약함. 공급 과잉 신호에 투자 주춤. 장기 회복 기대 필요"
+}}
+
+## 🎯 중요 포인트:
+- **개별 기사 분석 X** → 카테고리 전체의 흐름 분석
+- **트렌드는 기사에서 반복되는 내용** (공통 주제)
+- **투자자 심리는 시장 참여자의 실제 행동** 기반
+- JSON만 응답 (설명 없음)
 """
         
         try:
@@ -171,8 +195,8 @@ class BriefingGenerator:
             
             briefing_data = json.loads(response_text)
             
-            logger.info(f"✅ 브리핑 생성: {article_title[:40]}")
-            logger.info(f"   분위기: {briefing_data.get('mood')} | 헤드: {briefing_data.get('headline')}")
+            logger.info(f"✅ {category} 분석 완료")
+            logger.info(f"   분위기: {briefing_data.get('mood')} | {briefing_data.get('headline')}")
             
             return briefing_data
             
@@ -184,53 +208,64 @@ class BriefingGenerator:
             logger.error(f"❌ Claude API 실패: {str(e)}")
             return None
     
-    def process_articles(self, limit: int = None):
-        """DB 기사를 VibePick 브리핑으로 변환"""
+    def save_category_briefing(self, db, briefing_data: dict, articles: list):
+        """카테고리 브리핑을 Briefing 테이블에 저장 (첫 기사 기준)"""
+        
+        if not briefing_data or not articles:
+            return
+        
+        try:
+            # 첫 번째 기사를 기준으로 저장 (여러 기사의 종합이므로)
+            article = articles[0]
+            
+            new_briefing = Briefing(
+                article_id=article.id,
+                ai_summary=briefing_data.get("headline", ""),
+                positive_points=briefing_data.get("trends", []),
+                negative_points=[briefing_data.get("investor_sentiment", "")],
+                related_stocks=briefing_data.get("related_stocks", []),
+                related_sectors=[briefing_data.get("category", "")]
+            )
+            
+            db.add(new_briefing)
+            db.commit()
+            logger.info(f"   💾 저장 완료\n")
+            
+        except Exception as e:
+            db.rollback()
+            logger.error(f"   저장 오류: {str(e)}\n")
+    
+    def process_categories(self):
+        """모든 카테고리별 종합 분석"""
         db = SessionLocal()
         
         try:
-            articles_without_briefing = db.query(Article).filter(
-                ~Article.id.in_(
-                    db.query(Briefing.article_id)
-                )
-            ).limit(limit).all()
+            logger.info("\n" + "="*60)
+            logger.info("📊 카테고리별 종합 분석 시작")
+            logger.info("="*60 + "\n")
             
-            logger.info(f"\n🎯 VibePick 감정형 브리핑 생성 (개선판: 부정적 뉴스 강화)")
-            logger.info(f"처리할 기사: {len(articles_without_briefing)}개\n")
+            # 카테고리별 기사 그룹화
+            categorized_articles = self.get_articles_by_category(db)
             
-            if not articles_without_briefing:
-                logger.info("🎉 처리할 기사가 없습니다 (모두 완료됨)")
-                return
+            logger.info(f"분석할 카테고리: {len(categorized_articles)}개\n")
             
-            for idx, article in enumerate(articles_without_briefing, 1):
-                logger.info(f"[{idx}/{len(articles_without_briefing)}] {article.title[:50]}")
+            for category, articles in categorized_articles.items():
+                if not articles:
+                    continue
                 
-                briefing_data = self.generate_briefing(
-                    article.title,
-                    article.original_content
-                )
+                logger.info(f"📂 {category} ({len(articles)}개 기사 분석)")
+                
+                # 카테고리별 종합 분석
+                briefing_data = self.generate_category_briefing(category, articles)
                 
                 if briefing_data:
-                    try:
-                        new_briefing = Briefing(
-                            article_id=article.id,
-                            ai_summary=briefing_data.get("headline", ""),
-                            positive_points=briefing_data.get("today_points", []),
-                            negative_points=[briefing_data.get("investor_feeling", "")],
-                            related_stocks=briefing_data.get("related_stocks", []),
-                            related_sectors=[]
-                        )
-                        
-                        db.add(new_briefing)
-                        db.commit()
-                        logger.info(f"   💾 저장 완료 ({briefing_data.get('mood')})\n")
-                    except Exception as e:
-                        db.rollback()
-                        logger.error(f"   저장 오류: {str(e)}\n")
+                    self.save_category_briefing(db, briefing_data, articles)
                 else:
-                    logger.error(f"   ⚠️  생성 실패\n")
+                    logger.error(f"   ⚠️  분석 실패\n")
             
-            logger.info("✨ 모든 기사 처리 완료!")
+            logger.info("="*60)
+            logger.info("✨ 모든 카테고리 분석 완료!")
+            logger.info("="*60 + "\n")
             
         except Exception as e:
             db.rollback()
@@ -240,5 +275,5 @@ class BriefingGenerator:
 
 
 if __name__ == "__main__":
-    generator = BriefingGenerator()
-    generator.process_articles(limit=10)
+    generator = CategoryBriefingGenerator()
+    generator.process_categories()
