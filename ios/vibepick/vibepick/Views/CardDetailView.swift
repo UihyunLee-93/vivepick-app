@@ -2,9 +2,10 @@ import SwiftUI
 
 // MARK: - 04. Card Detail (Full-bleed hero)
 struct CardDetailView: View {
-    let topic: BriefTopic
-    let slot: BriefSlot
+    let brief: Brief
     @Environment(\.dismiss) private var dismiss
+
+    private var slot: BriefSlot { brief.slot }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -52,18 +53,18 @@ struct CardDetailView: View {
     private var heroTitle: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                Image(systemName: topic.category.iconName)
+                Image(systemName: brief.primaryCategory.iconName)
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(topic.category.color)
+                    .foregroundColor(brief.primaryCategory.color)
                     .frame(width: 14)
 
-                Text(topic.categoryLabel)
+                Text(brief.categoryLabel)
                     .font(.system(size: 11, weight: .bold))
                     .tracking(0.6)
                     .foregroundColor(.white.opacity(0.86))
             }
 
-            Text(topic.title)
+            Text(brief.title)
                 .font(.system(size: 26, weight: .bold))
                 .foregroundColor(.white)
                 .lineSpacing(3)
@@ -77,7 +78,7 @@ struct CardDetailView: View {
 
     @ViewBuilder
     private var heroBackdrop: some View {
-        switch topic.category {
+        switch brief.primaryCategory {
         case .all:
             categoryHero(colors: slot.gradientColors, symbol: "sparkles", pattern: .rings)
         case .aiTech:
@@ -230,7 +231,22 @@ struct CardDetailView: View {
         VStack(alignment: .leading, spacing: 18) {
             moodSection
             summarySection
-            keyPointsSection
+            if !brief.positivePoints.isEmpty {
+                pointsSection(
+                    title: "긍정 포인트",
+                    points: brief.positivePoints,
+                    icon: "arrow.up.right",
+                    color: VPTheme.positive
+                )
+            }
+            if !brief.negativePoints.isEmpty {
+                pointsSection(
+                    title: "부정 포인트",
+                    points: brief.negativePoints,
+                    icon: "arrow.down.right",
+                    color: VPTheme.negative
+                )
+            }
             stocksSection
             aiBriefFooter
         }
@@ -249,16 +265,16 @@ struct CardDetailView: View {
             Spacer()
 
             HStack(spacing: 5) {
-                Text(topic.mood.rawValue)
+                Text(brief.mood.rawValue)
                     .font(.system(size: 12, weight: .bold))
-                Text(topic.mood.arrow)
+                Text(brief.mood.arrow)
                     .font(.system(size: 13, weight: .bold))
             }
-            .foregroundColor(topic.mood.color)
+            .foregroundColor(brief.mood.color)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(topic.mood.color.opacity(0.16))
-            .overlay(Capsule().stroke(topic.mood.color.opacity(0.4), lineWidth: 1))
+            .background(brief.mood.color.opacity(0.16))
+            .overlay(Capsule().stroke(brief.mood.color.opacity(0.4), lineWidth: 1))
             .clipShape(Capsule())
         }
     }
@@ -269,7 +285,7 @@ struct CardDetailView: View {
                 .font(.system(size: 13, weight: .bold))
                 .foregroundColor(.white)
 
-            Text(topic.detail)
+            Text(brief.summary)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(VPTheme.textSecondary)
                 .lineSpacing(5)
@@ -282,22 +298,22 @@ struct CardDetailView: View {
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.05), lineWidth: 1))
     }
 
-    private var keyPointsSection: some View {
+    private func pointsSection(title: String, points: [String], icon: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("주요 포인트")
+            Text(title)
                 .font(.system(size: 13, weight: .bold))
                 .foregroundColor(.white)
 
             VStack(spacing: 10) {
-                ForEach(Array(topic.keyPoints.enumerated()), id: \.offset) { _, point in
+                ForEach(Array(points.enumerated()), id: \.offset) { _, point in
                     HStack(alignment: .top, spacing: 10) {
                         ZStack {
                             Circle()
-                                .fill(VPTheme.positive.opacity(0.16))
+                                .fill(color.opacity(0.16))
                                 .frame(width: 22, height: 22)
-                            Image(systemName: "checkmark")
+                            Image(systemName: icon)
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(VPTheme.positive)
+                                .foregroundColor(color)
                         }
 
                         Text(point)
@@ -324,13 +340,13 @@ struct CardDetailView: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(.white)
                 Spacer()
-                Text("\(topic.relatedStocks.count)개")
+                Text("\(brief.relatedStocks.count)개")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(VPTheme.textTertiary)
             }
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 8)], alignment: .leading, spacing: 8) {
-                ForEach(topic.relatedStocks, id: \.self) { stock in
+                ForEach(brief.relatedStocks, id: \.self) { stock in
                     Text(stock)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.white.opacity(0.86))
@@ -402,6 +418,6 @@ struct CardDetailView: View {
 
 #Preview {
     NavigationStack {
-        CardDetailView(topic: DummyData.morningTopics[0], slot: .morning)
+        CardDetailView(brief: DummyData.briefs[0])
     }
 }

@@ -2,10 +2,12 @@ import SwiftUI
 
 // MARK: - 03. Brief Detail (Unlocked)
 struct BriefDetailView: View {
-    let brief: Brief
+    let group: BriefSlotGroup
     @AppStorage(AppMode.isProModeStorageKey) private var isProMode = false
     @AppStorage(BriefCategory.selectedCategoriesStorageKey) private var selectedCategoryIDs = BriefCategory.defaultSelectedCategoryIDs
     @Environment(\.dismiss) private var dismiss
+
+    private var slot: BriefSlot { group.slot }
 
     private var enabledCategories: Set<BriefCategory> {
         BriefCategory.categories(from: selectedCategoryIDs, limit: categoryLimit)
@@ -15,8 +17,11 @@ struct BriefDetailView: View {
         isProMode ? nil : AppMode.regularCategoryLimit
     }
 
-    private var filteredTopics: [BriefTopic] {
-        brief.topics.filter { enabledCategories.contains($0.category) }
+    private var filteredBriefs: [Brief] {
+        group.briefs.filter { brief in
+            brief.categories.isEmpty
+                || brief.categories.contains(where: { enabledCategories.contains($0) })
+        }
     }
 
     var body: some View {
@@ -33,14 +38,14 @@ struct BriefDetailView: View {
 
                 ScrollView {
                     VStack(spacing: 12) {
-                        if filteredTopics.isEmpty {
+                        if filteredBriefs.isEmpty {
                             emptyState
                         } else {
-                            ForEach(filteredTopics) { topic in
+                            ForEach(filteredBriefs) { brief in
                                 NavigationLink {
-                                    CardDetailView(topic: topic, slot: brief.slot)
+                                    CardDetailView(brief: brief)
                                 } label: {
-                                    TopicRow(topic: topic)
+                                    BriefRow(brief: brief)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -58,25 +63,25 @@ struct BriefDetailView: View {
     private var slotBackdrop: some View {
         ZStack(alignment: .topTrailing) {
             LinearGradient(
-                colors: brief.slot.fullBackdropColors,
+                colors: slot.fullBackdropColors,
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
 
             LinearGradient(
-                colors: brief.slot.backdropColors,
+                colors: slot.backdropColors,
                 startPoint: .top,
                 endPoint: .bottom
             )
             .frame(height: 280)
             .frame(maxHeight: .infinity, alignment: .top)
 
-            Image(systemName: brief.slot.backdropSymbol)
+            Image(systemName: slot.backdropSymbol)
                 .font(.system(size: 150, weight: .bold))
                 .foregroundColor(.white.opacity(0.075))
                 .offset(x: 30, y: 84)
 
-            Image(systemName: brief.slot.backdropSymbol)
+            Image(systemName: slot.backdropSymbol)
                 .font(.system(size: 220, weight: .bold))
                 .foregroundColor(.white.opacity(0.025))
                 .offset(x: 72, y: 410)
@@ -136,9 +141,9 @@ struct BriefDetailView: View {
             Spacer()
 
             HStack(spacing: 6) {
-                Text(brief.slot.emoji)
+                Text(slot.emoji)
                     .font(.system(size: 13))
-                Text("\(brief.slot.time) \(brief.slot.title)")
+                Text("\(slot.time) \(slot.title)")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white)
             }
@@ -157,47 +162,47 @@ struct BriefDetailView: View {
 
 }
 
-// MARK: - Topic Row
-struct TopicRow: View {
-    let topic: BriefTopic
+// MARK: - Brief Row
+struct BriefRow: View {
+    let brief: Brief
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 HStack(spacing: 6) {
-                    Image(systemName: topic.category.iconName)
+                    Image(systemName: brief.primaryCategory.iconName)
                         .font(.system(size: 10.5, weight: .bold))
-                        .foregroundColor(topic.category.color)
+                        .foregroundColor(brief.primaryCategory.color)
                         .frame(width: 13)
 
-                    Text(topic.categoryLabel)
+                    Text(brief.categoryLabel)
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(topic.category.color)
+                        .foregroundColor(brief.primaryCategory.color)
                 }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(topic.category.color.opacity(0.15))
+                .background(brief.primaryCategory.color.opacity(0.15))
                 .clipShape(Capsule())
 
                 Spacer()
 
-                Text("\(topic.mood.rawValue) \(topic.mood.arrow)")
+                Text("\(brief.mood.rawValue) \(brief.mood.arrow)")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(topic.mood.color)
+                    .foregroundColor(brief.mood.color)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background(topic.mood.color.opacity(0.14))
+                    .background(brief.mood.color.opacity(0.14))
                     .clipShape(Capsule())
             }
 
-            Text(topic.title)
+            Text(brief.title)
                 .font(.system(size: 15, weight: .bold))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.leading)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(topic.summary)
+            Text(brief.summary)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(VPTheme.textTertiary)
                 .lineLimit(2)
@@ -335,7 +340,7 @@ struct LockedBriefView: View {
 
 #Preview("Detail") {
     NavigationStack {
-        BriefDetailView(brief: DummyData.briefs[0])
+        BriefDetailView(group: DummyData.slotGroups(isProMode: true)[0])
     }
 }
 

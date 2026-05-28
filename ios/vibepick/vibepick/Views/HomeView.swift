@@ -6,9 +6,21 @@ struct HomeView: View {
     @State private var briefs: [Brief] = []
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
+    @State private var crawlLoading = false
+    @State private var crawlMessage = ""
+    @State private var crawlAttemptCount = 0
+    @State private var lastCrawlCheckText = "-"
 
-    private var displayBriefs: [Brief] {
-        briefs.isEmpty ? DummyData.makeBriefs(isProMode: isProMode) : briefs
+    private var displayGroups: [BriefSlotGroup] {
+        BriefSlotGroup.makeGroups(from: briefs, isProMode: isProMode)
+    }
+
+    private var shouldShowCrawlDetailCard: Bool {
+        crawlLoading || !crawlMessage.isEmpty || !briefs.isEmpty
+    }
+
+    private var firstLoadedBrief: Brief? {
+        briefs.sorted { $0.publishedAt > $1.publishedAt }.first
     }
 
     var body: some View {
@@ -22,6 +34,12 @@ struct HomeView: View {
                             .padding(.top, 8)
                             .padding(.bottom, 6)
 
+                        crawlTestPanel
+
+                        if shouldShowCrawlDetailCard {
+                            crawlDetailCard
+                        }
+
                         if isLoading && briefs.isEmpty {
                             loadingView
                         }
@@ -30,15 +48,15 @@ struct HomeView: View {
                             errorView(message: errorMessage)
                         }
 
-                        ForEach(displayBriefs) { brief in
+                        ForEach(displayGroups) { group in
                             NavigationLink {
-                                if brief.isUnlocked {
-                                    BriefDetailView(brief: brief)
+                                if group.isUnlocked {
+                                    BriefDetailView(group: group)
                                 } else {
-                                    LockedBriefView(slot: brief.slot)
+                                    LockedBriefView(slot: group.slot)
                                 }
                             } label: {
-                                BriefCard(brief: brief)
+                                BriefCard(group: group)
                             }
                             .buttonStyle(.plain)
                         }
@@ -55,6 +73,137 @@ struct HomeView: View {
         .refreshable {
             await loadBriefings()
         }
+    }
+
+    private var crawlTestPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                Task {
+                    await testCrawling()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 13, weight: .bold))
+                    Text(crawlLoading ? "크롤링 진행 중" : "크롤링 테스트")
+                        .font(.system(size: 13, weight: .bold))
+                    Spacer()
+                    if crawlLoading {
+                        ProgressView()
+                            .tint(.white)
+                    }
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .background(
+                    LinearGradient(
+                        colors: [Color(hex: "2563EB"), VPTheme.purple],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .disabled(crawlLoading)
+
+            if !crawlMessage.isEmpty {
+                Text(crawlMessage)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(VPTheme.textTertiary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(14)
+        .background(VPTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.05), lineWidth: 1))
+    }
+
+    private var crawlDetailCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(VPTheme.purple)
+
+                Text("크롤링 테스트 확인")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+
+                Spacer()
+
+                Text(briefs.isEmpty ? "대기" : "서버 데이터")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(briefs.isEmpty ? VPTheme.textTertiary : VPTheme.positive)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background((briefs.isEmpty ? Color.white : VPTheme.positive).opacity(0.10))
+                    .clipShape(Capsule())
+            }
+
+            HStack(spacing: 8) {
+                CrawlMetric(title: "요청", value: "\(crawlAttemptCount)회")
+                CrawlMetric(title: "브리핑", value: "\(briefs.count)개")
+                CrawlMetric(title: "확인", value: lastCrawlCheckText)
+            }
+
+            if let firstLoadedBrief {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Text(firstLoadedBrief.slot.emoji)
+                            .font(.system(size: 13))
+                        Text(firstLoadedBrief.slot.title)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.white.opacity(0.86))
+                        Spacer()
+                        Text("총 \(briefs.count)개")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(VPTheme.textTertiary)
+                    }
+
+                    Text(firstLoadedBrief.title)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.white)
+                        .lineLimit(2)
+
+                    Text(firstLoadedBrief.summary)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundColor(VPTheme.textTertiary)
+                        .lineLimit(2)
+
+                    NavigationLink {
+                        CardDetailView(brief: firstLoadedBrief)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("첫 브리핑 상세 보기")
+                                .font(.system(size: 12, weight: .bold))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 7)
+                        .background(VPTheme.purple.opacity(0.22))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(12)
+                .background(Color.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                Text("크롤링 완료 후 서버에서 받은 첫 브리핑이 여기에 표시됩니다.")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundColor(VPTheme.textTertiary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(14)
+        .background(VPTheme.surfaceElevated)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(VPTheme.purple.opacity(0.18), lineWidth: 1))
     }
 
     private var loadingView: some View {
@@ -101,6 +250,7 @@ struct HomeView: View {
 
         do {
             briefs = try await NetworkManager.shared.fetchBriefings()
+            lastCrawlCheckText = timeString(from: Date())
             isLoading = false
         } catch {
             isLoading = false
@@ -114,6 +264,49 @@ struct HomeView: View {
             errorMessage = "데이터 로드 실패: \(error.localizedDescription)"
             print("API Error: \(error)")
         }
+    }
+
+    private func testCrawling() async {
+        crawlLoading = true
+        crawlMessage = "크롤링 시작 중..."
+        crawlAttemptCount = 0
+        lastCrawlCheckText = "-"
+        errorMessage = nil
+        briefs = []
+
+        do {
+            _ = try await NetworkManager.shared.triggerCrawl()
+            crawlMessage = "크롤링 시작됨. 잠시 후 자동 새로고침합니다..."
+
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+
+            for index in 1...60 {
+                crawlAttemptCount = index
+                await loadBriefings()
+
+                if !briefs.isEmpty {
+                    crawlMessage = "크롤링 완료! 데이터가 로드되었습니다."
+                    crawlLoading = false
+                    return
+                }
+
+                crawlMessage = "크롤링 중... \(index)초"
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+
+            crawlMessage = "크롤링 타임아웃: 1분 안에 새 데이터가 확인되지 않았습니다."
+            crawlLoading = false
+        } catch {
+            crawlMessage = "크롤링 실패: \(error.localizedDescription)"
+            crawlLoading = false
+        }
+    }
+
+    private func timeString(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: date)
     }
 
     private var header: some View {
@@ -159,9 +352,31 @@ struct HomeView: View {
     }
 }
 
+private struct CrawlMetric: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(VPTheme.textMuted)
+            Text(value)
+                .font(.system(size: 11.5, weight: .bold))
+                .foregroundColor(.white.opacity(0.86))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
 // MARK: - Brief Card
 struct BriefCard: View {
-    let brief: Brief
+    let group: BriefSlotGroup
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -170,7 +385,7 @@ struct BriefCard: View {
                 RoundedRectangle(cornerRadius: 20)
                     .fill(VPTheme.surface)
 
-                BriefIllustration(slot: brief.slot)
+                BriefIllustration(slot: group.slot)
                     .frame(width: 180, height: 130)
                     .padding(.trailing, -10)
             }
@@ -179,19 +394,23 @@ struct BriefCard: View {
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 6) {
-                        Text(brief.slot.emoji)
+                        Text(group.slot.emoji)
                             .font(.system(size: 13))
-                        Text(brief.slot.time)
+                        Text(group.slot.time)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(.white.opacity(0.7))
+                        Spacer(minLength: 0)
+                        Text("\(group.count)건")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(VPTheme.textTertiary)
                     }
 
-                    Text(brief.slot.title)
+                    Text(group.slot.title)
                         .font(.system(size: 19, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.top, 6)
 
-                    Text(brief.slot.tagline)
+                    Text(group.slot.tagline)
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundColor(VPTheme.textTertiary)
                         .lineLimit(2)
@@ -218,7 +437,7 @@ struct BriefCard: View {
 
     @ViewBuilder
     private var statusPill: some View {
-        if brief.isUnlocked {
+        if group.isUnlocked {
             HStack(spacing: 6) {
                 Circle()
                     .fill(VPTheme.positive)
