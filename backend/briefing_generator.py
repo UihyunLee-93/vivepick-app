@@ -20,7 +20,7 @@ class BriefingGenerator:
         self.max_tokens = 1000
     
     def get_articles_by_category(self, db) -> dict:
-        """Briefing이 없는 최신 기사만 그룹화"""
+        """Briefing이 없는 최신 기사를 키워드로 분류"""
         
         analyzed_article_ids = db.query(Briefing.article_id).distinct().all()
         analyzed_ids = {row[0] for row in analyzed_article_ids}
@@ -35,12 +35,31 @@ class BriefingGenerator:
         
         logger.info(f"분석 대상 기사: {len(unanalyzed_articles)}개")
         
+        # ✅ 카테고리별 키워드 정의
+        category_keywords = {
+            "AI · 기술": ["ai", "칩", "반도체", "클라우드", "기술", "nvidia", "엔비디아", "sk하이닉스", "삼성전자", "생성형"],
+            "금융": ["금리", "금융", "한은", "환율", "국채", "금융시장", "kb금융", "신한", "하나금융"],
+            "에너지": ["유가", "배터리", "태양광", "전기요금", "원유", "에너지", "sk이노베이션", "한전"],
+            "모빌리티": ["자동차", "전기차", "현대차", "기아", "모빌리티", "포드", "테슬라"],
+            "바이오": ["바이오", "신약", "제약", "셀트리온", "삼성바이오"],
+            "소비 · 라이프": ["소비", "라이프", "아모레", "호텔", "식품", "유통"],
+            "산업 · 제조": ["산업", "제조", "건설", "해양", "현대중공업", "두산"],
+            "글로벌": ["미국", "중국", "일본", "유럽", "국제", "해외"],
+            "크립토": ["비트코인", "암호화폐", "이더리움", "디지털자산"],
+            "콘텐츠 · 엔터": ["콘텐츠", "엔터", "방송", "영화", "음악", "게임", "하이브", "jyp", "sm"]
+        }
+        
         categorized = defaultdict(list)
         for article in unanalyzed_articles:
-            if " - " in article.source_name:
-                category = article.source_name.split(" - ")[-1]
-            else:
-                category = "기타"
+            category = "기타"
+            
+            # title + original_content에서 키워드 검색
+            text = (article.title + " " + article.original_content).lower()
+            
+            for cat, keywords in category_keywords.items():
+                if any(kw.lower() in text for kw in keywords):
+                    category = cat
+                    break
             
             categorized[category].append(article)
         

@@ -29,7 +29,6 @@ app.add_middleware(
 
 # ============ Pydantic 모델 ============
 
-
 class BriefingResponse(BaseModel):
     """브리핑 응답 모델"""
     id: int
