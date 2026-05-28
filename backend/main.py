@@ -339,11 +339,19 @@ def run_crawl_and_generate(slot: str = "morning"):
     logger.info(f"⏰ {slot.upper()} 자동 스케줄 실행")
     logger.info("="*50 + "\n")
     
-    crawler = NewsCrawler()
-    crawler.run_crawl()
+    try:
+        crawler = NewsCrawler()
+        crawler.run_crawl()
+    except Exception as e:
+        logger.error(f"❌ 크롤링 실패: {str(e)}")
     
-    generator = BriefingGenerator()
-    generator.process_categories(slot=slot)
+    try:
+        generator = BriefingGenerator()
+        generator.process_categories(slot=slot)
+    except Exception as e:
+        logger.error(f"❌ 브리핑 생성 실패: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 
 def clean_previous_day_data():
@@ -390,7 +398,7 @@ def start_scheduler():
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="morning"),
         'cron',
-        hour='8',
+        hour='9',
         minute='0',
         timezone='Asia/Seoul'
     )
@@ -398,15 +406,15 @@ def start_scheduler():
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="noon"),
         'cron',
-        hour='12',
-        minute='15',
+        hour='13',
+        minute='0',
         timezone='Asia/Seoul'
     )
     
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="night"),
         'cron',
-        hour='19',
+        hour='17',
         minute='0',
         timezone='Asia/Seoul'
     )
