@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class NaverNewsCrawler:
+class NewsCrawler:
     """네이버 뉴스 검색 API를 사용한 크롤링"""
     
     def __init__(self):
