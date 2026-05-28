@@ -202,12 +202,6 @@ struct BriefRow: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(brief.summary)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(VPTheme.textTertiary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)

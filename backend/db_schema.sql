@@ -9,7 +9,7 @@ CREATE TABLE articles (
     source_name VARCHAR(100)
 );
 
--- 2. AI 브리핑 테이블
+-- 2. AI 브리핑 테이블 (mood 필드 추가)
 CREATE TABLE briefings (
     id BIGSERIAL PRIMARY KEY,
     article_id BIGINT REFERENCES articles(id) ON DELETE CASCADE,
@@ -18,6 +18,7 @@ CREATE TABLE briefings (
     negative_points TEXT[] NOT NULL,
     related_stocks TEXT[] NOT NULL,
     related_sectors TEXT[] NOT NULL,
+    mood VARCHAR(20),  -- ✅ 새로 추가: "긍정적", "중립", "부정적"
     generated_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -28,7 +29,7 @@ CREATE TABLE stocks (
     name_ko VARCHAR(100) NOT NULL,
     name_en VARCHAR(100),
     sector VARCHAR(50),
-    market VARCHAR(20), -- KOSPI, KOSDAQ, NASDAQ
+    market VARCHAR(20),
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -51,7 +52,7 @@ CREATE TABLE user_interests (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- 6. 사용자 조회 이력 테이블 (분석용)
+-- 6. 사용자 조회 이력 테이블
 CREATE TABLE user_views (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -64,5 +65,6 @@ CREATE INDEX idx_articles_crawled_at ON articles(crawled_at DESC);
 CREATE INDEX idx_briefings_article_id ON briefings(article_id);
 CREATE INDEX idx_briefings_stocks ON briefings USING GIN(related_stocks);
 CREATE INDEX idx_briefings_sectors ON briefings USING GIN(related_sectors);
+CREATE INDEX idx_briefings_mood ON briefings(mood);  -- ✅ mood 인덱스 추가
 CREATE INDEX idx_user_interests ON user_interests(user_id);
 CREATE INDEX idx_stocks_sector ON stocks(sector);

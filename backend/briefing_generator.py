@@ -13,22 +13,20 @@ client = Anthropic()
 
 
 class BriefingGenerator:
-    """VibePick 카테고리별 종합 분석 브리핑"""
+    """VibePick 재미있는 시장 분위기 브리핑"""
     
     def __init__(self):
         self.model = "claude-opus-4-6"
-        self.max_tokens = 800
+        self.max_tokens = 1000
     
     def get_articles_by_category(self, db) -> dict:
-        """✅ Briefing이 없는 최신 기사만 그룹화 (1개 이상이면 분석)"""
+        """Briefing이 없는 최신 기사만 그룹화"""
         
-        # 1️⃣ 이미 Briefing이 있는 article_id 조회
         analyzed_article_ids = db.query(Briefing.article_id).distinct().all()
         analyzed_ids = {row[0] for row in analyzed_article_ids}
         
         logger.info(f"이미 분석된 기사: {len(analyzed_ids)}개")
         
-        # 2️⃣ Briefing이 없는 최신 기사 100개 조회
         unanalyzed_articles = db.query(Article).filter(
             ~Article.id.isin(analyzed_ids) if analyzed_ids else True
         ).order_by(
@@ -37,7 +35,6 @@ class BriefingGenerator:
         
         logger.info(f"분석 대상 기사: {len(unanalyzed_articles)}개")
         
-        # 3️⃣ source_name에서 카테고리 추출: "네이버뉴스 - AI · 기술"
         categorized = defaultdict(list)
         for article in unanalyzed_articles:
             if " - " in article.source_name:
@@ -47,182 +44,129 @@ class BriefingGenerator:
             
             categorized[category].append(article)
         
-        # 4️⃣ 각 카테고리별 1개 이상이면 분석 (최대 10개)
         result = {}
         for cat, cat_articles in categorized.items():
-            if len(cat_articles) >= 1:  # 1개 이상이면 분석!
-                result[cat] = cat_articles[:10]  # 최대 10개
+            if len(cat_articles) >= 1:
+                result[cat] = cat_articles[:10]
             else:
                 logger.info(f"⏭️  {cat}: 기사 0개 (분석 스킵)")
         
-        logger.info(f"📂 카테고리별 기사 그룹화: {len(result)}개 카테고리 (1개 이상 보유)")
+        logger.info(f"📂 카테고리별 기사 그룹화: {len(result)}개 카테고리")
         for cat, arts in result.items():
             logger.info(f"   {cat}: {len(arts)}개 (신규)")
         
         return result
     
-    def generate_category_briefing(self, category: str, articles: list) -> dict:
-        """카테고리별 종합 분석 브리핑 생성 (현실적인 감정 분석)"""
+    def generate_category_briefing(self, category: str, articles: list, slot: str = "morning") -> dict:
+        """카테고리별 재미있는 브리핑 생성 (시간대별로 다른 톤)"""
         
-        # 기사들을 요약 문자열로
         articles_summary = "\n".join([
             f"- {article.title}: {article.original_content[:300]}"
             for article in articles
         ])
         
-        prompt = f"""당신은 중립적인 시장 분석가입니다.
-뉴스의 긍정/부정을 객관적으로 판단하세요.
+        # 시간대별 톤 설정
+        time_context = {
+            "morning": "출근길에 읽을 수 있는 '오늘 뭘 봐야 하나?' 관점",
+            "noon": "점심시간에 읽을 수 있는 '지금 뭐가 일어나고 있나?' 관점",
+            "night": "퇴근길에 읽을 수 있는 '내일은 어떨까?' 전망 관점"
+        }
+        
+        tone_instruction = time_context.get(slot, "객관적인 시장 흐름")
+        
+        prompt = f"""당신은 재미있고 통찰력 있는 시장 분석가입니다.
+마치 친구한테 설명해주듯이, 자연스럽고 재미있게 브리핑하세요.
 
 [카테고리] {category}
+[시간대] {slot} ({tone_instruction})
 
 [최근 기사 {len(articles)}개]
 {articles_summary}
 
-## 📊 분석 원칙:
+## 📊 당신의 역할:
 
-### ❌ 절대 금지 (당신이 자주 하는 실수):
-1. 모든 뉴스를 긍정적으로 해석하기
-2. 부정적 뉴스를 "기회"로 포장하기
-3. "장기적으로 긍정"이라며 현재의 부정 무시
-4. 투자자 입장에서 낙관적으로 왜곡
-5. **은행이 금리인상하면 "수익성 개선"이라 긍정으로 표현 (❌ 이건 기업입장에선 부담)**
+### 톤 & 스타일:
+- **출근길(morning)**: "오늘 이거 챙겨야 해요!" 식의 액션 제시
+- **점심(noon)**: "지금 이렇게 흘러가고 있어요" 식의 현황 설명
+- **퇴근(night)**: "내일 이거 나올 수 있어요" 식의 예측/전망
 
-### ✅ 부정적 신호 (절대 긍정으로 왜곡하지 마세요):
-- **금리인상** → 부정적 (기업·소비자 차입비용 증가)
-- **경기둔화** → 부정적 (성장율 하락)
-- **실업률 증가** → 부정적 (고용 악화)
-- **손실 발표** → 부정적 (실적 악화)
-- **경쟁 심화** → 부정적 (가격 하락, 마진 압박)
-- **규제강화** → 부정적 (비용 증가)
-- **구조조정** → 부정적 (일자리 감소)
-- **매출/이익 감소** → 부정적 (사업 위축)
+### ✅ 좋은 예시:
 
-### ✅ 긍정 신호 (숫자로 확인되어야 함):
-- 매출/이익 **증가** (% 수치 명시)
-- 신제품 **출시 성공** (판매량 증가)
-- **M&A 완료** (전략적 강화)
-- **시장점유율 확대**
-- **기술혁신 완성** (실제 적용)
-
-### ✅ 중립 신호:
-- 인사이동 (영향 불확실)
-- 실적 발표 (예상 범위 내)
-- 정책 분석 (방향 불명확)
-
-### 2️⃣ 핵심 흐름 (20자 이내, 이모지 1개)
-❌ 모든 기사에 🚀를 붙이지 마세요!
-
-```
-✅ 좋은 예시:
-- 긍정적: "AI칩 수요 폭발, 공급 경쟁 🚀" (부정확한 부분 없음)
-- 부정적: "금리인상 확정, 기업 부담 ⚠️" (현실적)
-- 중립: "실적 발표, 시장 반응 주목 →" (결과 미정)
-```
-
-### 3️⃣ 트렌드 분석 (정확히 3개)
-**기사에서 반복되는 부정적 신호도 포함하세요!**
-
-```
-예시 (금융 - 금리인상 기사 많을 때):
-1. "금리 인상 신호 강해짐"
-2. "대출 수요 축소 우려"
-3. "기업 차입금 비용 증가"
-
-예시 (에너지 - 유가 약세 기사):
-1. "국제유가 하락 추세"
-2. "정제 마진 축소 중"
-3. "공급 과잉 신호 확산"
-```
-
-### 4️⃣ 관련 주요 종목 (3-5개)
-기사에 언급된 기업들
-
-### 5️⃣ 투자자 심리 (2-3문장)
-**현실 그대로 표현하세요!**
-
-```
-❌ 나쁜 예시:
-"금리인상이지만 강한 매수심리 유지. AI 혁신에 희망"
-→ 너무 긍정적으로만 표현
-
-✅ 좋은 예시:
-"금리인상 신호에 신중한 관망 중. 대출 비용 증가 우려.
-기대와 우려가 섞여있는 상황. 선별 투자 중"
-→ 현실적이고 균형잡힌 표현
-
-✅ 부정적 기사 분석:
-"유가 약세로 에너지주 약함. 공급과잉 신호에 투자 주춤.
-장기 회복까지 관망 필요"
-→ 부정적이지만 정직함
-```
-
-## 📋 JSON 응답 형식 (반드시 JSON만):
-{{
-    "category": "{category}",
-    "mood": "긍정적|중립|부정적",
-    "headline": "20자 이내 (이모지 1개)",
-    "trends": [
-        "트렌드 1 (15자 이내)",
-        "트렌드 2 (15자 이내)",
-        "트렌드 3 (15자 이내)"
-    ],
-    "related_stocks": ["종목1", "종목2", "종목3"],
-    "investor_sentiment": "투자자 심리 2-3문장"
-}}
-
-## ✅ 현실적인 예시:
-
-### AI · 기술 (호실적 기사 많을 때)
+#### 아침 (출근길 - 행동성)
 {{
     "category": "AI · 기술",
-    "mood": "긍정적",
-    "headline": "AI칩 수요 폭발, 공급경쟁 심화 🚀",
-    "trends": [
-        "AI칩 수요 사상 최고",
-        "공급사 투자경쟁 심화",
-        "가격 인상여력 확대"
+    "time_slot": "morning",
+    "headline": "AI칩 수요 폭발, 반도체주는 '사이드 시트' 📈",
+    "main_story": "엔비디아 투자 소식 + 국내 반도체 수급 개선 = 오늘 반도체주 주목. 삼성전자·SK하이닉스 오전장 흐름 체크 필수",
+    "watch_points": [
+        "삼성전자 오전장 강도 확인",
+        "SK하이닉스 수급 변화",
+        "해외 선물 영향도 체크"
     ],
     "related_stocks": ["삼성전자", "SK하이닉스", "엔비디아"],
-    "investor_sentiment": "AI 성장스토리 매수심리 강함. 밸류에이션 우려로 변동성 커짐. 기술주 양극화 진행중"
+    "mood": "positive",
+    "investor_sentiment": "AI 수요 강세에 반도체 복구 기대. 오전장에 매수 심리 강할 듯"
 }}
 
-### 금융 (금리인상 기사 많을 때) - 명백히 부정적!
+#### 점심 (장중 - 현황)
 {{
     "category": "금융",
-    "mood": "부정적",
-    "headline": "금리인상 확정, 차입비용 증가 ⚠️",
-    "trends": [
-        "금리인상 신호 강화중",
-        "기업 차입비용 증가",
-        "대출수요 축소 우려"
+    "time_slot": "noon",
+    "headline": "금리인상 신호에 금융주 약세... 오후는 어떨까? 🤔",
+    "main_story": "오전장 기준 금융주가 약세 이어가는 중. 한은 발언 이후 시장 심리 꺾인 상태. 오후 해외 지표가 변수",
+    "watch_points": [
+        "오후 미국 경제지표 발표 (2시 예정)",
+        "금융주 매도 강도 지속 여부",
+        "환율 변화 추적"
     ],
-    "related_stocks": ["은행주", "금융지주"],
-    "investor_sentiment": "금리인상 신호에 신중한 관망. 기업·가계 부담 증가 우려. 금융주도 변동성 확대 예상"
+    "related_stocks": ["KB금융", "신한지주", "하나금융"],
+    "mood": "negative",
+    "investor_sentiment": "금리인상 공포에 매도 심리. 오후 미국 지표가 해결책 될 수도"
 }}
 
-### 에너지 (유가약세 기사 많을 때) - 명백히 부정적!
+#### 저녁 (마감 후 - 전망)
 {{
     "category": "에너지",
-    "mood": "부정적",
-    "headline": "유가약세, 수익성 악화 📉",
-    "trends": [
-        "국제유가 지속 하락",
-        "정제 마진 축소중",
-        "공급 과잉 우려"
+    "time_slot": "night",
+    "headline": "유가 약세 지속, 내일 OPEC+ 회의가 변수 📺",
+    "main_story": "오늘 유가 하락으로 에너지주 약세. 내일 OPEC+ 회의 결과에 따라 반전 가능. 밤사이 선물 추이 주목",
+    "watch_points": [
+        "밤사이 WTI유가 변화",
+        "내일 OPEC+ 회의 결과",
+        "한국 유가 연동성"
     ],
-    "related_stocks": ["S-Oil", "SK이노베이션"],
-    "investor_sentiment": "유가약세로 에너지주 약함. 정제마진 축소에 수익성 악화. 회복까지 관망 필요"
+    "related_stocks": ["S-Oil", "SK이노베이션", "한국전력"],
+    "mood": "neutral",
+    "investor_sentiment": "유가 약세로 관망 중이지만, 내일 OPEC+ 회의에서 회복 신호 나올 가능성"
 }}
 
-## 🎯 핵심 규칙 (절대 위반하지 마세요):
-1. ❌ 금리인상 뉴스를 "은행 수익성 개선"으로 긍정 해석 금지
-2. ❌ 경기 부진을 "저점 도달 = 회복 기회"로 왜곡 금지
-3. ❌ 손실 기사를 "일시적"이라며 무시 금지
-4. ✅ 부정적 신호는 부정적으로 표현하세요
-5. ✅ 기사의 표면 내용 그대로 판단하세요
-6. ✅ 투자자 입장에서 "현재" 영향을 평가하세요
+## 🎯 핵심 규칙:
 
-JSON만 응답 (설명 없음)
+### ❌ 절대 금지:
+1. 딱딱한 "보고서" 톤
+2. 금리인상을 긍정으로 포장
+3. 행동성 없는 설명만
+4. 시간대 관계없이 같은 내용
+
+### ✅ 반드시 포함:
+1. **시간대에 맞는 톤** (아침/점심/저녁 다름)
+2. **Watch Points** (구체적 행동 또는 관찰 포인트)
+3. **변수 제시** (뭐가 바뀔 수 있나?)
+4. **자연스러운 문체** (친구 조언 같은 느낌)
+
+## 📋 JSON 응답:
+{{
+    "category": "{category}",
+    "time_slot": "{slot}",
+    "headline": "20자 이내 (이모지 1개)",
+    "main_story": "2-3문장 (상황 설명 + 변수)",
+    "watch_points": ["포인트1", "포인트2", "포인트3"],
+    "related_stocks": ["종목1", "종목2", "종목3"],
+    "mood": "positive|neutral|negative",
+    "investor_sentiment": "2-3문장"
+}}
+
+JSON만 응답하세요 (설명 없음)
 """
         
         try:
@@ -262,58 +206,70 @@ JSON만 응답 (설명 없음)
             return None
     
     def save_category_briefing(self, db, briefing_data: dict, articles: list):
-        """카테고리 브리핑을 Briefing 테이블에 저장 (첫 기사 기준)"""
+        """카테고리 브리핑을 DB에 저장"""
         
         if not briefing_data or not articles:
             return
         
         try:
-            # 첫 번째 기사를 기준으로 저장 (여러 기사의 종합이므로)
             article = articles[0]
+            
+            mood_map = {
+                "긍정적": "positive",
+                "중립": "neutral",
+                "부정적": "negative"
+            }
+            mood_ko = briefing_data.get("mood", "중립")
+            mood_en = mood_map.get(mood_ko, "neutral")
+            
+            # ✅ main_story + watch_points를 한데 저장
+            detail = briefing_data.get("main_story", "")
+            watch_points_text = " | ".join(briefing_data.get("watch_points", []))
+            full_summary = f"{detail}\n\n📌 체크포인트: {watch_points_text}"
             
             new_briefing = Briefing(
                 article_id=article.id,
                 ai_summary=briefing_data.get("headline", ""),
-                positive_points=briefing_data.get("trends", []),
+                positive_points=briefing_data.get("watch_points", []),  # watch_points 활용
                 negative_points=[briefing_data.get("investor_sentiment", "")],
                 related_stocks=briefing_data.get("related_stocks", []),
-                related_sectors=[briefing_data.get("category", "")]
+                related_sectors=[briefing_data.get("category", "")],
+                mood=mood_en
             )
             
             db.add(new_briefing)
             db.commit()
-            logger.info(f"   💾 저장 완료\n")
+            logger.info(f"   💾 저장 완료 (분위기: {mood_ko})\n")
             
         except Exception as e:
             db.rollback()
             logger.error(f"   저장 오류: {str(e)}\n")
     
-    def process_categories(self):
-        """모든 카테고리별 종합 분석 (신규 기사만, 1개 이상, 현실적 감정)"""
+    def process_categories(self, slot: str = "morning"):
+        """카테고리별 재미있는 분석 (시간대별)"""
         db = SessionLocal()
         
         try:
             logger.info("\n" + "="*60)
-            logger.info("📊 카테고리별 종합 분석 시작 (신규 기사만)")
+            logger.info(f"📊 {slot.upper()} 브리핑 생성 시작")
             logger.info("="*60 + "\n")
             
-            # ✅ Briefing이 없는 기사만 카테고리별로 그룹화
             categorized_articles = self.get_articles_by_category(db)
             
             logger.info(f"\n분석할 카테고리: {len(categorized_articles)}개\n")
             
             if len(categorized_articles) == 0:
-                logger.info("⏭️  분석할 신규 기사가 없습니다 (모두 분석됨)")
+                logger.info("⏭️  분석할 신규 기사가 없습니다")
                 return
             
             for category, articles in categorized_articles.items():
                 if not articles:
                     continue
                 
-                logger.info(f"📂 {category} ({len(articles)}개 신규 기사 분석)")
+                logger.info(f"📂 {category} ({len(articles)}개 신규 기사)")
                 
-                # 카테고리별 종합 분석
-                briefing_data = self.generate_category_briefing(category, articles)
+                # 시간대별로 다른 톤으로 분석
+                briefing_data = self.generate_category_briefing(category, articles, slot=slot)
                 
                 if briefing_data:
                     self.save_category_briefing(db, briefing_data, articles)
@@ -321,7 +277,7 @@ JSON만 응답 (설명 없음)
                     logger.error(f"   ⚠️  분석 실패\n")
             
             logger.info("="*60)
-            logger.info("✨ 모든 카테고리 분석 완료!")
+            logger.info("✨ 브리핑 생성 완료!")
             logger.info("="*60 + "\n")
             
         except Exception as e:
@@ -333,4 +289,8 @@ JSON만 응답 (설명 없음)
 
 if __name__ == "__main__":
     generator = BriefingGenerator()
-    generator.process_categories()
+    
+    # 테스트: 시간대별 생성
+    generator.process_categories(slot="morning")
+    # generator.process_categories(slot="noon")
+    # generator.process_categories(slot="night")

@@ -12,7 +12,6 @@ load_dotenv()
 DATABASE_URL = os.getenv("SUPABASE_DB_URL")
 if not DATABASE_URL:
     print("⚠️ DATABASE_URL not found, skipping DB init")
-    # 또는 기본값 설정
     DATABASE_URL = "postgresql://localhost/dummy"
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -44,10 +43,12 @@ class Briefing(Base):
     id = Column(BigInteger, primary_key=True, index=True)
     article_id = Column(BigInteger, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False)
     ai_summary = Column(Text, nullable=False)
-    positive_points = Column(ARRAY(String), nullable=False, default=[])
+    main_story = Column(Text, nullable=True)  # ✅ 새로 추가: 2-3문장 메인 스토리
+    positive_points = Column(ARRAY(String), nullable=False, default=[])  # watch_points로 사용
     negative_points = Column(ARRAY(String), nullable=False, default=[])
     related_stocks = Column(ARRAY(String), nullable=False, default=[], index=True)
     related_sectors = Column(ARRAY(String), nullable=False, default=[], index=True)
+    mood = Column(String(20), nullable=True, index=True)
     generated_at = Column(DateTime, default=datetime.utcnow)
     
     # 관계
@@ -63,7 +64,7 @@ class Stock(Base):
     name_ko = Column(String(100), nullable=False)
     name_en = Column(String(100))
     sector = Column(String(50), index=True)
-    market = Column(String(20))  # KOSPI, KOSDAQ, NASDAQ
+    market = Column(String(20))
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
