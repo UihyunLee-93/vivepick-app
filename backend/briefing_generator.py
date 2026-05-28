@@ -204,8 +204,8 @@ JSON만 응답하세요 (설명 없음)
             logger.error(f"❌ Claude API 실패: {str(e)}")
             return None
     
-    def save_category_briefing(self, db, briefing_data: dict, articles: list):
-        """카테고리 브리핑을 DB에 저장 (mood 정규화)"""
+    def save_category_briefing(self, db, briefing_data: dict, articles: list, slot: str = "morning"):
+        """카테고리 브리핑을 DB에 저장 (mood 정규화 + time_slot)"""
         
         if not briefing_data or not articles:
             return
@@ -216,7 +216,6 @@ JSON만 응답하세요 (설명 없음)
             # ✅ mood 값 정규화 (다양한 형식 대응)
             mood_raw = briefing_data.get("mood", "neutral")
             
-            # 한글 → 영문 변환 + 소문자 정규화
             mood_map = {
                 "긍정적": "positive",
                 "중립": "neutral",
@@ -248,12 +247,13 @@ JSON만 응답하세요 (설명 없음)
                 negative_points=[briefing_data.get("investor_sentiment", "")],
                 related_stocks=briefing_data.get("related_stocks", []),
                 related_sectors=[briefing_data.get("category", "")],
-                mood=mood_en
+                mood=mood_en,
+                time_slot=slot  # ✅ time_slot 저장
             )
             
             db.add(new_briefing)
             db.commit()
-            logger.info(f"   💾 저장 완료 (분위기: {mood_en})\n")
+            logger.info(f"   💾 저장 완료 (분위기: {mood_en}, 시간대: {slot})\n")
             
         except Exception as e:
             db.rollback()
@@ -285,7 +285,7 @@ JSON만 응답하세요 (설명 없음)
                 briefing_data = self.generate_category_briefing(category, articles, slot=slot)
                 
                 if briefing_data:
-                    self.save_category_briefing(db, briefing_data, articles)
+                    self.save_category_briefing(db, briefing_data, articles, slot=slot)  # ✅ slot 파라미터 전달
                 else:
                     logger.error(f"   ⚠️  분석 실패\n")
             

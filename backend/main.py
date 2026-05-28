@@ -32,13 +32,14 @@ app.add_middleware(
 class BriefingResponse(BaseModel):
     """브리핑 응답 모델"""
     id: int
-    title: str  # ✅ Claude 생성 헤드라인 (ai_summary)
+    title: str
     main_story: str
     positive_points: list
     negative_points: list
     related_stocks: list
     related_sectors: list
     mood: str
+    time_slot: str
     published_at: datetime
     
     class Config:
@@ -107,6 +108,7 @@ async def trigger_crawl():
 async def get_briefings(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    time_slot: str = Query(None),
     sectors: list = Query(None),
     stocks: list = Query(None),
     mood: str = Query(None),
@@ -118,12 +120,16 @@ async def get_briefings(
     Parameters:
     - limit: 조회 개수 (기본 20, 최대 100)
     - offset: 스킵할 개수
+    - time_slot: 시간대 필터 (morning, noon, night)
     - sectors: 섹터 필터
     - stocks: 종목 필터
     - mood: 분위기 필터 (positive, neutral, negative)
     """
     
     query = db.query(Briefing).join(Article)
+    
+    if time_slot:
+        query = query.filter(Briefing.time_slot == time_slot)
     
     if sectors:
         query = query.filter(Briefing.related_sectors.overlap(sectors))
@@ -142,13 +148,14 @@ async def get_briefings(
     for b in briefings:
         response.append({
             "id": b.id,
-            "title": b.ai_summary,  # ✅ Claude 생성 헤드라인만 (원본 제목 제외)
+            "title": b.ai_summary,
             "main_story": b.main_story or "",
             "positive_points": b.positive_points,
             "negative_points": b.negative_points,
             "related_stocks": b.related_stocks,
             "related_sectors": b.related_sectors,
             "mood": b.mood or "neutral",
+            "time_slot": b.time_slot or "morning",
             "published_at": b.article.crawled_at
         })
     
@@ -165,13 +172,14 @@ async def get_briefing_detail(briefing_id: int, db: Session = Depends(get_db)):
     
     return {
         "id": briefing.id,
-        "title": briefing.ai_summary,  # ✅ Claude 생성 헤드라인만
+        "title": briefing.ai_summary,
         "main_story": briefing.main_story or "",
         "positive_points": briefing.positive_points,
         "negative_points": briefing.negative_points,
         "related_stocks": briefing.related_stocks,
         "related_sectors": briefing.related_sectors,
         "mood": briefing.mood or "neutral",
+        "time_slot": briefing.time_slot or "morning",
         "published_at": briefing.article.crawled_at
     }
 
@@ -246,6 +254,7 @@ async def get_user_personalized_briefings(
     user_id: str,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    time_slot: str = Query(None),
     db: Session = Depends(get_db)
 ):
     """사용자 맞춤형 브리핑 조회"""
@@ -254,34 +263,33 @@ async def get_user_personalized_briefings(
         UserInterest.user_id == user_id
     ).first()
     
-    if not user_interest:
-        briefings = db.query(Briefing).order_by(
-            Briefing.generated_at.desc()
-        ).offset(offset).limit(limit).all()
-    else:
-        query = db.query(Briefing)
-        
-        if user_interest.interested_sectors or user_interest.interested_stocks:
-            query = query.filter(
-                (Briefing.related_sectors.overlap(user_interest.interested_sectors)) |
-                (Briefing.related_stocks.overlap(user_interest.interested_stocks))
-            )
-        
-        briefings = query.order_by(
-            Briefing.generated_at.desc()
-        ).offset(offset).limit(limit).all()
+    query = db.query(Briefing)
+    
+    if time_slot:
+        query = query.filter(Briefing.time_slot == time_slot)
+    
+    if user_interest and (user_interest.interested_sectors or user_interest.interested_stocks):
+        query = query.filter(
+            (Briefing.related_sectors.overlap(user_interest.interested_sectors)) |
+            (Briefing.related_stocks.overlap(user_interest.interested_stocks))
+        )
+    
+    briefings = query.order_by(
+        Briefing.generated_at.desc()
+    ).offset(offset).limit(limit).all()
     
     response = []
     for b in briefings:
         response.append({
             "id": b.id,
-            "title": b.ai_summary,  # ✅ Claude 생성 헤드라인만
+            "title": b.ai_summary,
             "main_story": b.main_story or "",
             "positive_points": b.positive_points,
             "negative_points": b.negative_points,
             "related_stocks": b.related_stocks,
             "related_sectors": b.related_sectors,
             "mood": b.mood or "neutral",
+            "time_slot": b.time_slot or "morning",
             "published_at": b.article.crawled_at
         })
     
@@ -301,6 +309,10 @@ async def get_stats(db: Session = Depends(get_db)):
     neutral_count = db.query(Briefing).filter(Briefing.mood == "neutral").count()
     negative_count = db.query(Briefing).filter(Briefing.mood == "negative").count()
     
+    morning_count = db.query(Briefing).filter(Briefing.time_slot == "morning").count()
+    noon_count = db.query(Briefing).filter(Briefing.time_slot == "noon").count()
+    night_count = db.query(Briefing).filter(Briefing.time_slot == "night").count()
+    
     return {
         "total_articles": total_articles,
         "total_briefings": total_briefings,
@@ -310,23 +322,60 @@ async def get_stats(db: Session = Depends(get_db)):
             "positive": positive_count,
             "neutral": neutral_count,
             "negative": negative_count
+        },
+        "time_slot_distribution": {
+            "morning": morning_count,
+            "noon": noon_count,
+            "night": night_count
         }
     }
 
 
 # ============ 스케줄러 ============
 
-def run_crawl_and_generate():
+def run_crawl_and_generate(slot: str = "morning"):
     """크롤링 + 브리핑 생성 작업"""
     logger.info("\n" + "="*50)
-    logger.info("⏰ 자동 스케줄 실행 시작")
+    logger.info(f"⏰ {slot.upper()} 자동 스케줄 실행")
     logger.info("="*50 + "\n")
     
     crawler = NewsCrawler()
     crawler.run_crawl()
     
     generator = BriefingGenerator()
-    generator.process_categories(slot="morning")
+    generator.process_categories(slot=slot)
+
+
+def clean_previous_day_data():
+    """자동 정리 함수 - 자정마다 전날 데이터 삭제"""
+    db = SessionLocal()
+    try:
+        yesterday = datetime.utcnow() - timedelta(days=1)
+        
+        logger.info("\n" + "="*50)
+        logger.info("🧹 자정 정리 시작")
+        logger.info("="*50 + "\n")
+        
+        # briefings 정리
+        briefing_count = db.query(Briefing).filter(
+            Briefing.generated_at < yesterday
+        ).delete()
+        
+        # articles 정리
+        article_count = db.query(Article).filter(
+            Article.crawled_at < yesterday
+        ).delete()
+        
+        db.commit()
+        
+        logger.info(f"✅ 정리 완료: briefing {briefing_count}개, article {article_count}개 삭제")
+        logger.info("="*50 + "\n")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ 정리 실패: {str(e)}")
+    finally:
+        db.close()
 
 
 scheduler = None
@@ -339,7 +388,7 @@ def start_scheduler():
     
     # 하루 3회: 09:00 (아침), 13:00 (점심), 17:00 (저녁)
     scheduler.add_job(
-        lambda: BriefingGenerator().process_categories(slot="morning"),
+        lambda: run_crawl_and_generate(slot="morning"),
         'cron',
         hour='9',
         minute='0',
@@ -347,7 +396,7 @@ def start_scheduler():
     )
     
     scheduler.add_job(
-        lambda: BriefingGenerator().process_categories(slot="noon"),
+        lambda: run_crawl_and_generate(slot="noon"),
         'cron',
         hour='13',
         minute='0',
@@ -355,15 +404,24 @@ def start_scheduler():
     )
     
     scheduler.add_job(
-        lambda: BriefingGenerator().process_categories(slot="night"),
+        lambda: run_crawl_and_generate(slot="night"),
         'cron',
         hour='17',
         minute='0',
         timezone='Asia/Seoul'
     )
     
+    # ✅ 자정마다 전날 데이터 정리
+    scheduler.add_job(
+        clean_previous_day_data,
+        'cron',
+        hour='0',
+        minute='0',
+        timezone='Asia/Seoul'
+    )
+    
     scheduler.start()
-    logger.info("✅ 스케줄러 시작 (09:00/13:00/17:00 KST에 자동 실행)")
+    logger.info("✅ 스케줄러 시작 (09:00/13:00/17:00 크롤링 + 00:00 정리)")
 
 
 @app.on_event("shutdown")
