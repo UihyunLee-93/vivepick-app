@@ -20,14 +20,26 @@ class BriefingGenerator:
         self.max_tokens = 800
     
     def get_articles_by_category(self, db) -> dict:
-        """카테고리별로 기사 그룹화 (각 카테고리 최소 3개, 최대 10개)"""
-        articles = db.query(Article).order_by(
-            Article.crawled_at.desc()
-        ).limit(100).all()  # ✅ 50개 → 100개로 증가
+        """✅ Briefing이 없는 최신 기사만 그룹화 (각 카테고리 최소 3개, 최대 10개)"""
         
-        # source_name에서 카테고리 추출: "네이버뉴스 - AI · 기술"
+        # 1️⃣ 이미 Briefing이 있는 article_id 조회
+        analyzed_article_ids = db.query(Briefing.article_id).distinct().all()
+        analyzed_ids = {row[0] for row in analyzed_article_ids}
+        
+        logger.info(f"이미 분석된 기사: {len(analyzed_ids)}개")
+        
+        # 2️⃣ Briefing이 없는 최신 기사 100개 조회
+        unanalyzed_articles = db.query(Article).filter(
+            ~Article.id.isin(analyzed_ids) if analyzed_ids else True
+        ).order_by(
+            Article.crawled_at.desc()
+        ).limit(100).all()
+        
+        logger.info(f"분석 대상 기사: {len(unanalyzed_articles)}개")
+        
+        # 3️⃣ source_name에서 카테고리 추출: "네이버뉴스 - AI · 기술"
         categorized = defaultdict(list)
-        for article in articles:
+        for article in unanalyzed_articles:
             if " - " in article.source_name:
                 category = article.source_name.split(" - ")[-1]
             else:
@@ -35,7 +47,7 @@ class BriefingGenerator:
             
             categorized[category].append(article)
         
-        # ✅ 각 카테고리별 3~10개 (기사가 적으면 그것만 사용)
+        # 4️⃣ 각 카테고리별 3~10개 (기사가 적으면 그것만 사용)
         result = {}
         for cat, cat_articles in categorized.items():
             if len(cat_articles) >= 3:  # 최소 3개 이상만
@@ -44,7 +56,7 @@ class BriefingGenerator:
         
         logger.info(f"📂 카테고리별 기사 그룹화: {len(result)}개 카테고리")
         for cat, arts in result.items():
-            logger.info(f"   {cat}: {len(arts)}개")
+            logger.info(f"   {cat}: {len(arts)}개 (신규)")
         
         return result
     
@@ -246,24 +258,28 @@ class BriefingGenerator:
             logger.error(f"   저장 오류: {str(e)}\n")
     
     def process_categories(self):
-        """모든 카테고리별 종합 분석"""
+        """모든 카테고리별 종합 분석 (신규 기사만)"""
         db = SessionLocal()
         
         try:
             logger.info("\n" + "="*60)
-            logger.info("📊 카테고리별 종합 분석 시작")
+            logger.info("📊 카테고리별 종합 분석 시작 (신규 기사만)")
             logger.info("="*60 + "\n")
             
-            # 카테고리별 기사 그룹화
+            # ✅ Briefing이 없는 기사만 카테고리별로 그룹화
             categorized_articles = self.get_articles_by_category(db)
             
             logger.info(f"\n분석할 카테고리: {len(categorized_articles)}개\n")
+            
+            if len(categorized_articles) == 0:
+                logger.info("⏭️  분석할 신규 기사가 없습니다 (모두 분석됨)")
+                return
             
             for category, articles in categorized_articles.items():
                 if not articles:
                     continue
                 
-                logger.info(f"📂 {category} ({len(articles)}개 기사 분석)")
+                logger.info(f"📂 {category} ({len(articles)}개 신규 기사 분석)")
                 
                 # 카테고리별 종합 분석
                 briefing_data = self.generate_category_briefing(category, articles)
