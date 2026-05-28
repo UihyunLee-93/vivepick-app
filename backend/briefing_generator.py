@@ -20,10 +20,10 @@ class BriefingGenerator:
         self.max_tokens = 800
     
     def get_articles_by_category(self, db) -> dict:
-        """카테고리별로 기사 그룹화 (최근 5개씩)"""
+        """카테고리별로 기사 그룹화 (각 카테고리 최소 3개, 최대 10개)"""
         articles = db.query(Article).order_by(
             Article.crawled_at.desc()
-        ).limit(50).all()
+        ).limit(100).all()  # ✅ 50개 → 100개로 증가
         
         # source_name에서 카테고리 추출: "네이버뉴스 - AI · 기술"
         categorized = defaultdict(list)
@@ -35,8 +35,18 @@ class BriefingGenerator:
             
             categorized[category].append(article)
         
-        # 각 카테고리별 5개씩만 유지
-        return {cat: articles[:5] for cat, articles in categorized.items()}
+        # ✅ 각 카테고리별 3~10개 (기사가 적으면 그것만 사용)
+        result = {}
+        for cat, cat_articles in categorized.items():
+            if len(cat_articles) >= 3:  # 최소 3개 이상만
+                result[cat] = cat_articles[:10]  # 최대 10개
+            # 3개 미만은 제외 (분석 품질 보장)
+        
+        logger.info(f"📂 카테고리별 기사 그룹화: {len(result)}개 카테고리")
+        for cat, arts in result.items():
+            logger.info(f"   {cat}: {len(arts)}개")
+        
+        return result
     
     def generate_category_briefing(self, category: str, articles: list) -> dict:
         """카테고리별 종합 분석 브리핑 생성"""
@@ -247,7 +257,7 @@ class BriefingGenerator:
             # 카테고리별 기사 그룹화
             categorized_articles = self.get_articles_by_category(db)
             
-            logger.info(f"분석할 카테고리: {len(categorized_articles)}개\n")
+            logger.info(f"\n분석할 카테고리: {len(categorized_articles)}개\n")
             
             for category, articles in categorized_articles.items():
                 if not articles:
