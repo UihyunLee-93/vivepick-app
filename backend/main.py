@@ -32,13 +32,13 @@ app.add_middleware(
 class BriefingResponse(BaseModel):
     """브리핑 응답 모델"""
     id: int
-    title: str
-    summary: str
+    title: str  # ✅ Claude 생성 헤드라인 (ai_summary)
+    main_story: str
     positive_points: list
     negative_points: list
     related_stocks: list
     related_sectors: list
-    mood: str  # ✅ 새로 추가
+    mood: str
     published_at: datetime
     
     class Config:
@@ -109,7 +109,7 @@ async def get_briefings(
     offset: int = Query(0, ge=0),
     sectors: list = Query(None),
     stocks: list = Query(None),
-    mood: str = Query(None),  # ✅ mood 필터 추가
+    mood: str = Query(None),
     db: Session = Depends(get_db)
 ):
     """
@@ -118,26 +118,19 @@ async def get_briefings(
     Parameters:
     - limit: 조회 개수 (기본 20, 최대 100)
     - offset: 스킵할 개수
-    - sectors: 섹터 필터 (예: ["반도체", "2차전지"])
-    - stocks: 종목 필터 (예: ["삼성전자", "SK하이닉스"])
-    - mood: 분위기 필터 (예: "positive", "neutral", "negative")
+    - sectors: 섹터 필터
+    - stocks: 종목 필터
+    - mood: 분위기 필터 (positive, neutral, negative)
     """
     
     query = db.query(Briefing).join(Article)
     
-    # 섹터 필터링
     if sectors:
-        query = query.filter(
-            Briefing.related_sectors.overlap(sectors)
-        )
+        query = query.filter(Briefing.related_sectors.overlap(sectors))
     
-    # 종목 필터링
     if stocks:
-        query = query.filter(
-            Briefing.related_stocks.overlap(stocks)
-        )
+        query = query.filter(Briefing.related_stocks.overlap(stocks))
     
-    # mood 필터링 ✅
     if mood:
         query = query.filter(Briefing.mood == mood)
     
@@ -145,18 +138,17 @@ async def get_briefings(
         Briefing.generated_at.desc()
     ).offset(offset).limit(limit).all()
     
-    # 응답 포맷팅
     response = []
     for b in briefings:
         response.append({
             "id": b.id,
-            "title": b.article.title,
-            "summary": b.ai_summary,
+            "title": b.ai_summary,  # ✅ Claude 생성 헤드라인만 (원본 제목 제외)
+            "main_story": b.main_story or "",
             "positive_points": b.positive_points,
             "negative_points": b.negative_points,
             "related_stocks": b.related_stocks,
             "related_sectors": b.related_sectors,
-            "mood": b.mood or "neutral",  # ✅ 새로 추가
+            "mood": b.mood or "neutral",
             "published_at": b.article.crawled_at
         })
     
@@ -173,13 +165,13 @@ async def get_briefing_detail(briefing_id: int, db: Session = Depends(get_db)):
     
     return {
         "id": briefing.id,
-        "title": briefing.article.title,
-        "summary": briefing.ai_summary,
+        "title": briefing.ai_summary,  # ✅ Claude 생성 헤드라인만
+        "main_story": briefing.main_story or "",
         "positive_points": briefing.positive_points,
         "negative_points": briefing.negative_points,
         "related_stocks": briefing.related_stocks,
         "related_sectors": briefing.related_sectors,
-        "mood": briefing.mood or "neutral",  # ✅ 새로 추가
+        "mood": briefing.mood or "neutral",
         "published_at": briefing.article.crawled_at
     }
 
@@ -194,14 +186,12 @@ async def save_user_interests(
 ):
     """사용자 관심 태그 저장"""
     
-    # 사용자 확인 또는 생성
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         user = User(id=user_id, email=f"user_{user_id}@vivepick.app")
         db.add(user)
         db.commit()
     
-    # 관심 데이터 업데이트 또는 생성
     user_interest = db.query(UserInterest).filter(
         UserInterest.user_id == user_id
     ).first()
@@ -258,23 +248,17 @@ async def get_user_personalized_briefings(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)
 ):
-    """
-    사용자 맞춤형 브리핑 조회
-    (사용자의 관심 태그 기반 필터링)
-    """
+    """사용자 맞춤형 브리핑 조회"""
     
-    # 사용자 관심 데이터 조회
     user_interest = db.query(UserInterest).filter(
         UserInterest.user_id == user_id
     ).first()
     
     if not user_interest:
-        # 관심 데이터가 없으면 최신 브리핑만 반환
         briefings = db.query(Briefing).order_by(
             Briefing.generated_at.desc()
         ).offset(offset).limit(limit).all()
     else:
-        # 관심 섹터/종목 기반 필터링
         query = db.query(Briefing)
         
         if user_interest.interested_sectors or user_interest.interested_stocks:
@@ -287,18 +271,17 @@ async def get_user_personalized_briefings(
             Briefing.generated_at.desc()
         ).offset(offset).limit(limit).all()
     
-    # 응답 포맷팅
     response = []
     for b in briefings:
         response.append({
             "id": b.id,
-            "title": b.article.title,
-            "summary": b.ai_summary,
+            "title": b.ai_summary,  # ✅ Claude 생성 헤드라인만
+            "main_story": b.main_story or "",
             "positive_points": b.positive_points,
             "negative_points": b.negative_points,
             "related_stocks": b.related_stocks,
             "related_sectors": b.related_sectors,
-            "mood": b.mood or "neutral",  # ✅ 새로 추가
+            "mood": b.mood or "neutral",
             "published_at": b.article.crawled_at
         })
     
@@ -314,7 +297,6 @@ async def get_stats(db: Session = Depends(get_db)):
     total_briefings = db.query(Briefing).count()
     total_users = db.query(User).count()
     
-    # ✅ 분위기별 분포
     positive_count = db.query(Briefing).filter(Briefing.mood == "positive").count()
     neutral_count = db.query(Briefing).filter(Briefing.mood == "neutral").count()
     negative_count = db.query(Briefing).filter(Briefing.mood == "negative").count()
@@ -340,13 +322,11 @@ def run_crawl_and_generate():
     logger.info("⏰ 자동 스케줄 실행 시작")
     logger.info("="*50 + "\n")
     
-    # 크롤링
     crawler = NewsCrawler()
     crawler.run_crawl()
     
-    # 브리핑 생성
     generator = BriefingGenerator()
-    generator.process_categories()
+    generator.process_categories(slot="morning")
 
 
 scheduler = None
@@ -357,17 +337,33 @@ def start_scheduler():
     
     scheduler = BackgroundScheduler()
     
-    # 하루 3회: 09:00, 13:00, 17:00
+    # 하루 3회: 09:00 (아침), 13:00 (점심), 17:00 (저녁)
     scheduler.add_job(
-        run_crawl_and_generate,
+        lambda: BriefingGenerator().process_categories(slot="morning"),
         'cron',
-        hour='9,13,17',
+        hour='9',
+        minute='0',
+        timezone='Asia/Seoul'
+    )
+    
+    scheduler.add_job(
+        lambda: BriefingGenerator().process_categories(slot="noon"),
+        'cron',
+        hour='13',
+        minute='0',
+        timezone='Asia/Seoul'
+    )
+    
+    scheduler.add_job(
+        lambda: BriefingGenerator().process_categories(slot="night"),
+        'cron',
+        hour='17',
         minute='0',
         timezone='Asia/Seoul'
     )
     
     scheduler.start()
-    logger.info("✅ 스케줄러 시작 (09:00, 13:00, 17:00 KST에 자동 실행)")
+    logger.info("✅ 스케줄러 시작 (09:00/13:00/17:00 KST에 자동 실행)")
 
 
 @app.on_event("shutdown")
