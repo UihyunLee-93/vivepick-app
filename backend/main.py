@@ -1,328 +1,30 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Depends, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from datetime import datetime, timedelta
-from apscheduler.schedulers.background import BackgroundScheduler
-import logging
-import os
-import asyncio
-
-from database import get_db, init_db, Article, Briefing, User, UserInterest, Stock
+from database import engine, Base, get_db, Article, Briefing
 from crawler import NewsCrawler
 from briefing_generator import BriefingGenerator
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import logging
+import asyncio
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# FastAPI 앱 초기화
-app = FastAPI(title="Vivepick Backend", version="1.0.0")
+# DB 초기화
+Base.metadata.create_all(bind=engine)
 
-# CORS 설정 (Swift 앱에서 호출 가능하도록)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # 프로덕션에서는 특정 도메인만 허용
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="VibePick API")
 
-# ============ Pydantic 모델 ============
+# 스케줄러 설정
+scheduler = BackgroundScheduler()
 
-class BriefingResponse(BaseModel):
-    """브리핑 응답 모델"""
-    id: int
-    title: str
-    summary: str
-    positive_points: list
-    negative_points: list
-    related_stocks: list
-    related_sectors: list
-    published_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-
-class UserInterestsRequest(BaseModel):
-    """사용자 관심 저장 요청"""
-    interested_stocks: list = []
-    interested_sectors: list = []
-    interested_markets: list = []
-
-
-class UserInterestsResponse(BaseModel):
-    """사용자 관심 응답"""
-    interested_stocks: list
-    interested_sectors: list
-    interested_markets: list
-
-
-# ============ API 엔드포인트 ============
-
-@app.on_event("startup")
-async def startup_event():
-    """앱 시작 시 실행"""
-    logger.info("🚀 Vivepick 백엔드 시작")
-    try:
-        init_db()
-        logger.info("✅ 데이터베이스 초기화 성공")
-    except Exception as e:
-        logger.warning(f"⚠️ DB 초기화 실패 (개발 모드): {e}")
-    start_scheduler()
-
-
-@app.get("/health")
-async def health_check():
-    """헬스 체크"""
-    return {"status": "ok", "timestamp": datetime.utcnow()}
-
-
-# ============ 크롤링 테스트 ============
-
-@app.get("/trigger-crawl")
-async def trigger_crawl():
-    """
-    백그라운드 크롤링 실행 (즉시 응답)
-    - Swift 앱에서 테스트용으로 사용
-    - 평소에는 스케줄러가 자동 실행 (09:00, 13:00, 17:00)
-    """
-    try:
-        asyncio.create_task(asyncio.to_thread(run_crawl_and_generate))
-        logger.info("🧪 테스트 크롤링 시작 (백그라운드)")
-        return {
-            "status": "crawling_started",
-            "message": "백그라운드에서 크롤링 시작됨. 1-2분 후 /briefings에서 데이터 확인",
-            "timestamp": datetime.utcnow()
-        }
-    except Exception as e:
-        logger.error(f"❌ 크롤링 시작 실패: {e}")
-        return {
-            "status": "failed",
-            "error": str(e),
-            "message": "크롤링 시작 실패"
-        }
-
-
-# ============ 브리핑 조회 ============
-
-@app.get("/briefings", response_model=list[BriefingResponse])
-async def get_briefings(
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    sectors: list = Query(None),
-    stocks: list = Query(None),
-    db: Session = Depends(get_db)
-):
-    """
-    브리핑 목록 조회 (필터링 가능)
-    
-    Parameters:
-    - limit: 조회 개수 (기본 20, 최대 100)
-    - offset: 스킵할 개수
-    - sectors: 섹터 필터 (예: ["반도체", "2차전지"])
-    - stocks: 종목 필터 (예: ["삼성전자", "SK하이닉스"])
-    """
-    
-    query = db.query(Briefing).join(Article)
-    
-    # 섹터 필터링
-    if sectors:
-        query = query.filter(
-            Briefing.related_sectors.overlap(sectors)
-        )
-    
-    # 종목 필터링
-    if stocks:
-        query = query.filter(
-            Briefing.related_stocks.overlap(stocks)
-        )
-    
-    briefings = query.order_by(
-        Briefing.generated_at.desc()
-    ).offset(offset).limit(limit).all()
-    
-    # 응답 포맷팅
-    response = []
-    for b in briefings:
-        response.append({
-            "id": b.id,
-            "title": b.article.title,
-            "summary": b.ai_summary,
-            "positive_points": b.positive_points,
-            "negative_points": b.negative_points,
-            "related_stocks": b.related_stocks,
-            "related_sectors": b.related_sectors,
-            "published_at": b.article.crawled_at
-        })
-    
-    return response
-
-
-@app.get("/briefings/{briefing_id}", response_model=BriefingResponse)
-async def get_briefing_detail(briefing_id: int, db: Session = Depends(get_db)):
-    """특정 브리핑 상세 조회"""
-    briefing = db.query(Briefing).filter(Briefing.id == briefing_id).first()
-    
-    if not briefing:
-        raise HTTPException(status_code=404, detail="브리핑을 찾을 수 없습니다")
-    
-    return {
-        "id": briefing.id,
-        "title": briefing.article.title,
-        "summary": briefing.ai_summary,
-        "positive_points": briefing.positive_points,
-        "negative_points": briefing.negative_points,
-        "related_stocks": briefing.related_stocks,
-        "related_sectors": briefing.related_sectors,
-        "published_at": briefing.article.crawled_at
-    }
-
-
-# ============ 사용자 관심 설정 ============
-
-@app.post("/users/{user_id}/interests", response_model=UserInterestsResponse)
-async def save_user_interests(
-    user_id: str,
-    interests: UserInterestsRequest,
-    db: Session = Depends(get_db)
-):
-    """사용자 관심 태그 저장"""
-    
-    # 사용자 확인 또는 생성
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        user = User(id=user_id, email=f"user_{user_id}@vivepick.app")
-        db.add(user)
-        db.commit()
-    
-    # 관심 데이터 업데이트 또는 생성
-    user_interest = db.query(UserInterest).filter(
-        UserInterest.user_id == user_id
-    ).first()
-    
-    if user_interest:
-        user_interest.interested_stocks = interests.interested_stocks
-        user_interest.interested_sectors = interests.interested_sectors
-        user_interest.interested_markets = interests.interested_markets
-        user_interest.updated_at = datetime.utcnow()
-    else:
-        user_interest = UserInterest(
-            user_id=user_id,
-            interested_stocks=interests.interested_stocks,
-            interested_sectors=interests.interested_sectors,
-            interested_markets=interests.interested_markets
-        )
-        db.add(user_interest)
-    
-    db.commit()
-    
-    return {
-        "interested_stocks": user_interest.interested_stocks,
-        "interested_sectors": user_interest.interested_sectors,
-        "interested_markets": user_interest.interested_markets
-    }
-
-
-@app.get("/users/{user_id}/interests", response_model=UserInterestsResponse)
-async def get_user_interests(user_id: str, db: Session = Depends(get_db)):
-    """사용자 관심 태그 조회"""
-    
-    user_interest = db.query(UserInterest).filter(
-        UserInterest.user_id == user_id
-    ).first()
-    
-    if not user_interest:
-        return {
-            "interested_stocks": [],
-            "interested_sectors": [],
-            "interested_markets": []
-        }
-    
-    return {
-        "interested_stocks": user_interest.interested_stocks,
-        "interested_sectors": user_interest.interested_sectors,
-        "interested_markets": user_interest.interested_markets
-    }
-
-
-@app.get("/users/{user_id}/briefings", response_model=list[BriefingResponse])
-async def get_user_personalized_briefings(
-    user_id: str,
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
-):
-    """
-    사용자 맞춤형 브리핑 조회
-    (사용자의 관심 태그 기반 필터링)
-    """
-    
-    # 사용자 관심 데이터 조회
-    user_interest = db.query(UserInterest).filter(
-        UserInterest.user_id == user_id
-    ).first()
-    
-    if not user_interest:
-        # 관심 데이터가 없으면 최신 브리핑만 반환
-        briefings = db.query(Briefing).order_by(
-            Briefing.generated_at.desc()
-        ).offset(offset).limit(limit).all()
-    else:
-        # 관심 섹터/종목 기반 필터링
-        query = db.query(Briefing)
-        
-        if user_interest.interested_sectors or user_interest.interested_stocks:
-            query = query.filter(
-                (Briefing.related_sectors.overlap(user_interest.interested_sectors)) |
-                (Briefing.related_stocks.overlap(user_interest.interested_stocks))
-            )
-        
-        briefings = query.order_by(
-            Briefing.generated_at.desc()
-        ).offset(offset).limit(limit).all()
-    
-    # 응답 포맷팅
-    response = []
-    for b in briefings:
-        response.append({
-            "id": b.id,
-            "title": b.article.title,
-            "summary": b.ai_summary,
-            "positive_points": b.positive_points,
-            "negative_points": b.negative_points,
-            "related_stocks": b.related_stocks,
-            "related_sectors": b.related_sectors,
-            "published_at": b.article.crawled_at
-        })
-    
-    return response
-
-
-# ============ 통계 ============
-
-@app.get("/stats")
-async def get_stats(db: Session = Depends(get_db)):
-    """기본 통계"""
-    total_articles = db.query(Article).count()
-    total_briefings = db.query(Briefing).count()
-    total_users = db.query(User).count()
-    
-    return {
-        "total_articles": total_articles,
-        "total_briefings": total_briefings,
-        "total_users": total_users,
-        "briefing_coverage": f"{(total_briefings/max(total_articles, 1)*100):.1f}%"
-    }
-
-
-# ============ 스케줄러 ============
-
-def run_crawl_and_generate():
-    """크롤링 + 브리핑 생성 작업"""
+def crawl_and_generate():
+    """크롤링 + 브리핑 생성"""
     logger.info("\n" + "="*50)
     logger.info("⏰ 자동 스케줄 실행 시작")
-    logger.info("="*50 + "\n")
+    logger.info("="*50)
     
     # 크롤링
     crawler = NewsCrawler()
@@ -332,43 +34,174 @@ def run_crawl_and_generate():
     generator = BriefingGenerator()
     generator.process_articles(limit=10)
 
+# 스케줄 등록 (09:00, 13:00, 17:00 KST)
+scheduler.add_job(
+    crawl_and_generate,
+    CronTrigger(hour="9,13,17", minute="0", timezone="Asia/Seoul")
+)
 
-scheduler = None
-
-def start_scheduler():
-    """백그라운드 스케줄러 시작"""
-    global scheduler
+@app.on_event("startup")
+async def startup_event():
+    """앱 시작 시"""
+    logger.info("\n🚀 Vivepick 백엔드 시작")
     
-    scheduler = BackgroundScheduler()
+    # DB 테이블 생성
+    Base.metadata.create_all(bind=engine)
+    logger.info("✅ 데이터베이스 테이블 생성 완료")
+    logger.info("✅ 데이터베이스 초기화 성공")
     
-    # 하루 3회: 09:00, 13:00, 17:00
-    scheduler.add_job(
-        run_crawl_and_generate,
-        'cron',
-        hour='9,13,17',
-        minute='0',
-        timezone='Asia/Seoul'
-    )
-    
+    # 스케줄러 시작
     scheduler.start()
     logger.info("✅ 스케줄러 시작 (09:00, 13:00, 17:00 KST에 자동 실행)")
-
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """앱 종료 시"""
-    if scheduler:
-        scheduler.shutdown()
-    logger.info("🛑 Vivepick 백엔드 종료")
+    scheduler.shutdown()
 
+# ============================================
+# ✅ 수정된 브리핑 엔드포인트
+# ============================================
+
+class BriefingResponseSchema:
+    """API 응답 스키마"""
+    pass
+
+@app.get("/briefings")
+async def get_briefings(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    sectors: list = Query(None),
+    stocks: list = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    브리핑 목록 조회
+    
+    - **limit**: 최대 조회 개수 (기본값: 20)
+    - **offset**: 시작 위치 (기본값: 0)
+    - **sectors**: 카테고리 필터 (예: ["AI · 기술", "금융"])
+    - **stocks**: 종목 필터 (예: ["삼성전자", "SK하이닉스"])
+    """
+    
+    try:
+        query = db.query(Briefing).join(Article)
+        
+        # 카테고리 필터링
+        if sectors:
+            query = query.filter(Briefing.related_sectors.overlap(sectors))
+        
+        # 종목 필터링
+        if stocks:
+            query = query.filter(Briefing.related_stocks.overlap(stocks))
+        
+        # 데이터 조회
+        briefings = query.order_by(
+            Briefing.generated_at.desc()
+        ).offset(offset).limit(limit).all()
+        
+        response = []
+        for idx, b in enumerate(briefings, 1):
+            try:
+                # ✅ source_name에서 category 추출
+                category = b.article.source_name.split(" - ")[-1] if " - " in b.article.source_name else ""
+                
+                briefing_data = {
+                    "id": b.id,
+                    "category": category,  # ✅ 카테고리 추가
+                    "title": b.ai_summary,  # ✅ AI 분석 헤드라인을 제목으로!
+                    "originalTitle": b.article.title,  # 원본 기사 제목 (참고용)
+                    "summary": b.ai_summary,  # AI 분석 내용
+                    "positive_points": b.positive_points or [],  # 오늘 포인트들
+                    "negative_points": b.negative_points or [],  # 투자 심리
+                    "related_stocks": b.related_stocks or [],
+                    "related_sectors": b.related_sectors or [],
+                    "mood": "neutral",  # 기본값
+                    "published_at": b.article.crawled_at.isoformat() if b.article.crawled_at else None
+                }
+                
+                # mood 추출 (summary에서)
+                summary_lower = (b.ai_summary or "").lower()
+                if "📈" in summary_lower or "🚀" in summary_lower or "긍정" in summary_lower:
+                    briefing_data["mood"] = "positive"
+                elif "📉" in summary_lower or "⚠️" in summary_lower or "부정" in summary_lower:
+                    briefing_data["mood"] = "negative"
+                else:
+                    briefing_data["mood"] = "neutral"
+                
+                response.append(briefing_data)
+                
+            except Exception as e:
+                logger.error(f"[{idx}] 데이터 변환 오류: {str(e)}")
+                continue
+        
+        logger.info(f"✅ 브리핑 조회: {len(response)}개")
+        return response
+        
+    except Exception as e:
+        logger.error(f"❌ 브리핑 조회 실패: {str(e)}")
+        return {"error": str(e)}, 500
+
+@app.get("/briefings/{briefing_id}")
+async def get_briefing_detail(briefing_id: int, db: Session = Depends(get_db)):
+    """특정 브리핑 상세 조회"""
+    try:
+        briefing = db.query(Briefing).filter(Briefing.id == briefing_id).first()
+        
+        if not briefing:
+            return {"error": "브리핑을 찾을 수 없습니다"}, 404
+        
+        category = briefing.article.source_name.split(" - ")[-1] if " - " in briefing.article.source_name else ""
+        
+        return {
+            "id": briefing.id,
+            "category": category,
+            "title": briefing.ai_summary,
+            "originalTitle": briefing.article.title,
+            "summary": briefing.ai_summary,
+            "positive_points": briefing.positive_points or [],
+            "negative_points": briefing.negative_points or [],
+            "related_stocks": briefing.related_stocks or [],
+            "related_sectors": briefing.related_sectors or [],
+            "published_at": briefing.article.crawled_at.isoformat() if briefing.article.crawled_at else None
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ 브리핑 상세 조회 실패: {str(e)}")
+        return {"error": str(e)}, 500
+
+# ============================================
+# 테스트/디버깅 엔드포인트
+# ============================================
+
+@app.get("/")
+async def root():
+    """API 상태 확인"""
+    return {
+        "status": "VibePick 백엔드 정상 작동",
+        "endpoints": [
+            "/briefings - 브리핑 목록",
+            "/briefings/{id} - 브리핑 상세",
+            "/trigger-crawl - 수동 크롤링 실행",
+            "/docs - API 문서"
+        ]
+    }
+
+@app.get("/trigger-crawl")
+async def trigger_crawl():
+    """수동 크롤링 실행 (테스트용)"""
+    logger.info("\n🧪 테스트 크롤링 시작 (백그라운드)")
+    
+    # 백그라운드에서 실행
+    asyncio.create_task(asyncio.to_thread(crawl_and_generate))
+    
+    return {"status": "크롤링 시작됨", "message": "백그라운드에서 실행 중입니다"}
+
+@app.get("/health")
+async def health_check():
+    """헬스체크"""
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 if __name__ == "__main__":
     import uvicorn
-    
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=os.getenv("ENVIRONMENT") == "development"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8080)

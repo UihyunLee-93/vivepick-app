@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class NewsCrawler:
-    """네이버 뉴스 API - 카테고리 기반 크롤링"""
+    """네이버 뉴스 API - 카테고리 기반 + 투자 관련성 필터링"""
     
     def __init__(self):
         self.client_id = os.getenv("NAVER_CLIENT_ID")
@@ -26,79 +26,119 @@ class NewsCrawler:
             "X-Naver-Client-Secret": self.client_secret or ""
         }
         
-        # ✅ 카테고리별 검색어 (VibePick 카테고리와 매칭)
+        # ✅ 카테고리별 검색어 (투자 관련성 높은 것만)
         self.categories = {
             "AI · 기술": [
                 "생성형AI",
                 "AI칩",
-                "GPT",
-                "머신러닝",
+                "NVIDIA",
+                "반도체",
                 "클라우드"
             ],
             "금융": [
-                "금리",
-                "환율",
-                "주식시장",
-                "부동산",
-                "은행"
+                "금리인상",
+                "금융시장",
+                "한은",
+                "국채",
+                "환율"
             ],
             "에너지": [
                 "유가",
                 "태양광",
-                "풍력",
-                "석유",
+                "배터리",
+                "원유",
                 "전기요금"
             ],
             "모빌리티": [
                 "전기차",
                 "자율주행",
-                "수소차",
                 "배터리",
-                "완성차"
+                "자동차",
+                "현대차"
             ],
             "바이오": [
-                "신약",
+                "신약승인",
                 "임상시험",
-                "제약",
+                "제약주",
                 "바이오",
-                "헬스케어"
+                "셀트리온"
             ],
             "소비 · 라이프": [
                 "소비심리",
-                "패션",
-                "음식",
-                "여행",
-                "쇼핑"
+                "경기둔화",
+                "소비지수",
+                "부동산",
+                "주택"
             ],
             "산업 · 제조": [
                 "반도체",
-                "자동화",
                 "제조업",
+                "자동화",
                 "조선",
                 "철강"
             ],
             "글로벌": [
                 "미국주식",
+                "연방준비제도",
                 "환율",
-                "국제정세",
                 "글로벌기업",
-                "해외투자"
+                "나스닥"
             ],
             "크립토": [
                 "비트코인",
-                "이더리움",
-                "암호화폐",
                 "블록체인",
-                "NFT"
+                "암호화폐",
+                "ETF",
+                "규제"
             ],
             "콘텐츠 · 엔터": [
-                "영화",
-                "드라마",
-                "음악",
                 "웹툰",
-                "게임"
+                "게임주",
+                "넷플릭스",
+                "카카오",
+                "네이버"
             ]
         }
+        
+        # ✅ 필터링: 제외할 키워드들
+        self.exclude_keywords = [
+            "공무원", "시장", "구청", "후보", "선거", "정당",
+            "정책자금", "대출", "착수금",
+            "포상", "기념식", "행사", "봉사",
+            "교육", "장학금", "학교",
+            "대회", "스포츠",
+            "공고", "채용공고",
+            "분양", "입찰", "계약건",
+            "세미나", "발표회"
+        ]
+        
+        # ✅ 필터링: 포함해야 할 키워드들 (투자 관련)
+        self.required_keywords = [
+            "주가", "수익", "실적", "주식", "종목",
+            "상승", "하락", "급등", "급락",
+            "기업", "시장", "수급", "지수",
+            "투자", "수익률", "리스크",
+            "상장", "공모", "증자",
+            "컨센서스", "목표가", "리포트"
+        ]
+    
+    def is_investment_relevant(self, title: str, content: str) -> bool:
+        """투자 관련성 판단"""
+        text = (title + " " + content).lower()
+        
+        # 제외 키워드 체크
+        for keyword in self.exclude_keywords:
+            if keyword in text:
+                return False
+        
+        # 최소 1개의 투자 관련 키워드 포함 필요
+        investment_found = False
+        for keyword in self.required_keywords:
+            if keyword in text:
+                investment_found = True
+                break
+        
+        return investment_found
     
     def crawl_category_news(self, category: str, keywords: list) -> list:
         """카테고리별 뉴스 크롤링"""
@@ -131,6 +171,8 @@ class NewsCrawler:
                 
                 if response.status_code == 200:
                     data = response.json()
+                    collected = 0
+                    filtered = 0
                     
                     for item in data.get('items', []):
                         try:
@@ -144,27 +186,34 @@ class NewsCrawler:
                             if not (title and link):
                                 continue
                             
+                            # ✅ 투자 관련성 필터링
+                            if not self.is_investment_relevant(title, desc):
+                                filtered += 1
+                                logger.debug(f"      ⊘ 필터 제외: {title[:40]}")
+                                continue
+                            
                             articles.append({
                                 'title': title,
                                 'url': link,
                                 'content': desc if len(desc) > 10 else title,
                                 'source': '네이버뉴스',
-                                'category': category,  # ✅ 카테고리 추가
+                                'category': category,  # ✅ 카테고리 저장
                                 'published_at': datetime.utcnow()
                             })
                             
                             logger.info(f"      ✅ {title[:50]}")
+                            collected += 1
                         
                         except:
                             continue
                     
-                    logger.info(f"   수집: {len(articles)}개")
+                    logger.info(f"   수집: {collected}개, 필터제외: {filtered}개")
                 
                 elif response.status_code == 401:
                     logger.error("   ❌ API 키 오류")
                     return articles
                 
-                time.sleep(0.5)  # API 제한 회피
+                time.sleep(0.5)
                 
             except Exception as e:
                 logger.error(f"   ❌ {keyword} 오류: {str(e)}")
@@ -194,19 +243,20 @@ class NewsCrawler:
                         duplicate_count += 1
                         continue
                     
+                    # ✅ source_name에 카테고리 정보 저장
+                    source_name = f"{article_data['source']} - {article_data.get('category', '')}"
+                    
                     new_article = Article(
                         title=article_data['title'][:500],
                         source_url=article_data['url'],
                         original_content=article_data['content'][:2000],
-                        source_name=f"{article_data['source']} - {article_data.get('category', '')}",
+                        source_name=source_name,  # ✅ 카테고리 포함
                         crawled_at=article_data.get('published_at', datetime.utcnow())
                     )
                     
                     db.add(new_article)
                     db.flush()
                     saved_count += 1
-                    
-                    logger.info(f"   [{idx}] ✅ [{article_data.get('category')}] {article_data['title'][:40]}")
                     
                 except Exception as e:
                     logger.error(f"   [{idx}] 저장 실패: {str(e)}")
@@ -227,7 +277,7 @@ class NewsCrawler:
         start_time = time.time()
         
         logger.info("\n" + "="*60)
-        logger.info("🔄 카테고리 기반 뉴스 크롤링 시작")
+        logger.info("🔄 투자 관련성 필터링 크롤링 시작")
         logger.info("="*60)
         
         if not self.client_id:
@@ -238,7 +288,6 @@ class NewsCrawler:
         
         all_articles = []
         
-        # ✅ 각 카테고리별로 크롤링
         for category, keywords in self.categories.items():
             category_articles = self.crawl_category_news(category, keywords)
             all_articles.extend(category_articles)
@@ -251,7 +300,6 @@ class NewsCrawler:
             logger.info("="*60 + "\n")
             return
         
-        # DB 저장
         self.save_to_db(all_articles)
         
         elapsed = time.time() - start_time

@@ -205,127 +205,212 @@ enum BriefMood: String, Codable {
     }
 }
 
-// MARK: - Brief (서버 응답과 1:1)
-struct Brief: Identifiable, Codable {
+// MARK: - ✅ API Response Model (서버에서 받음)
+struct BriefingResponse: Identifiable, Codable {
     let id: Int
-    let title: String
-    let summary: String
-    let positivePoints: [String]
-    let negativePoints: [String]
-    let relatedStocks: [String]
-    let relatedSectors: [String]
-    let publishedAt: Date
-
-    enum CodingKeys: String, CodingKey {
-        case id, title, summary
-        case positivePoints = "positive_points"
-        case negativePoints = "negative_points"
-        case relatedStocks = "related_stocks"
-        case relatedSectors = "related_sectors"
-        case publishedAt = "published_at"
+    let category: String  // ✅ 카테고리
+    let title: String  // ✅ AI 분석 헤드라인 (제목으로 사용)
+    let originalTitle: String  // 원본 기사 제목
+    let summary: String  // AI 분석 내용
+    let positive_points: [String]
+    let negative_points: [String]
+    let related_stocks: [String]
+    let related_sectors: [String]
+    let mood: String  // 분위기
+    let published_at: String?
+    
+    // category 문자열을 BriefCategory로 변환
+    var categoryEnum: BriefCategory {
+        BriefCategory(rawValue: category) ?? .all
     }
-
-    /// publishedAt의 시(時)를 기준으로 슬롯 분류
-    var slot: BriefSlot {
-        let hour = Calendar.current.component(.hour, from: publishedAt)
-        switch hour {
-        case 0..<11: return .morning
-        case 11..<17: return .noon
-        default: return .night
+    
+    // mood 문자열을 BriefMood로 변환
+    var moodEnum: BriefMood {
+        switch mood {
+        case "긍정적": return .positive
+        case "부정적": return .negative
+        default: return .neutral
         }
     }
+}
 
-    var categories: [BriefCategory] {
-        relatedSectors.compactMap { BriefCategory(rawValue: $0) }
-    }
-
-    var primaryCategory: BriefCategory {
-        categories.first ?? .all
-    }
+// MARK: - Brief Topic (앱에서 사용하는 모델)
+struct BriefTopic: Identifiable, Codable {
+    let id: UUID
+    let topicNumber: Int
+    let category: BriefCategory
+    let subCategory: String
+    let title: String  // ✅ AI 헤드라인
+    let summary: String  // 원본 기사 제목
+    let mood: BriefMood
+    let keyPoints: [String]
+    let relatedStocks: [String]
+    let detail: String  // AI 분석 내용
 
     var categoryLabel: String {
-        primaryCategory.rawValue
+        category.rawValue
     }
 
-    /// 긍정/부정 포인트 수 비교로 무드 추론
-    var mood: BriefMood {
-        if positivePoints.count > negativePoints.count {
-            return .positive
-        } else if negativePoints.count > positivePoints.count {
-            return .negative
-        }
-        return .neutral
+    init(
+        topicNumber: Int,
+        category: BriefCategory,
+        subCategory: String,
+        title: String,
+        summary: String,
+        mood: BriefMood,
+        keyPoints: [String],
+        relatedStocks: [String],
+        detail: String
+    ) {
+        self.id = UUID()
+        self.topicNumber = topicNumber
+        self.category = category
+        self.subCategory = subCategory
+        self.title = title
+        self.summary = summary
+        self.mood = mood
+        self.keyPoints = keyPoints
+        self.relatedStocks = relatedStocks
+        self.detail = detail
+    }
+    
+    // ✅ API Response에서 BriefTopic으로 변환
+    init(from response: BriefingResponse, topicNumber: Int) {
+        self.id = UUID()
+        self.topicNumber = topicNumber
+        self.category = response.categoryEnum
+        self.subCategory = ""
+        self.title = response.title  // ✅ AI 헤드라인이 제목
+        self.summary = response.originalTitle  // 원본 기사 제목
+        self.mood = response.moodEnum
+        self.keyPoints = response.positive_points
+        self.relatedStocks = response.related_stocks
+        self.detail = response.summary  // AI 분석 내용
     }
 }
 
-// MARK: - Brief Slot Group (Home 화면 슬롯 단위 묶음)
-struct BriefSlotGroup: Identifiable {
+// MARK: - Brief
+struct Brief: Identifiable, Codable {
+    let id: UUID
     let slot: BriefSlot
-    let briefs: [Brief]
     let isUnlocked: Bool
+    let topics: [BriefTopic]
 
-    var id: String { slot.id }
-    var count: Int { briefs.count }
-
-    static func makeGroups(from briefs: [Brief], isProMode: Bool) -> [BriefSlotGroup] {
-        let sorted = briefs.sorted { $0.publishedAt > $1.publishedAt }
-        let grouped = Dictionary(grouping: sorted, by: { $0.slot })
-        return BriefSlot.allCases.map { slot in
-            BriefSlotGroup(
-                slot: slot,
-                briefs: grouped[slot] ?? [],
-                isUnlocked: slot == .morning || isProMode
-            )
-        }
+    init(slot: BriefSlot, isUnlocked: Bool, topics: [BriefTopic]) {
+        self.id = UUID()
+        self.slot = slot
+        self.isUnlocked = isUnlocked
+        self.topics = topics
     }
 }
 
-// MARK: - Dummy Data (Preview 전용)
+// MARK: - Dummy Data
 enum DummyData {
-    static let briefs: [Brief] = makeSampleBriefs()
+    static let morningTopics = makeTopics(for: .morning)
+    static let noonTopics = makeTopics(for: .noon)
+    static let nightTopics = makeTopics(for: .night)
 
-    static func slotGroups(isProMode: Bool = true) -> [BriefSlotGroup] {
-        BriefSlotGroup.makeGroups(from: briefs, isProMode: isProMode)
-    }
-
-    private static func makeSampleBriefs() -> [Brief] {
-        let cal = Calendar.current
-        let today = Date()
-        let morning = cal.date(bySettingHour: 8, minute: 0, second: 0, of: today) ?? today
-        let noon = cal.date(bySettingHour: 13, minute: 0, second: 0, of: today) ?? today
-        let night = cal.date(bySettingHour: 21, minute: 0, second: 0, of: today) ?? today
-
-        return [
-            Brief(
-                id: 1,
-                title: "AI 반도체 수요 회복 신호 감지",
-                summary: "엔비디아·SK하이닉스 등 AI 메모리 공급망 전반에서 주문 증가가 확인되고 있습니다.",
-                positivePoints: ["주요 클라우드 사업자 발주 재개", "HBM 가격 안정세"],
-                negativePoints: ["일부 구간 재고 부담 잔존"],
-                relatedStocks: ["엔비디아", "SK하이닉스", "삼성전자"],
-                relatedSectors: ["AI · 기술"],
-                publishedAt: morning
-            ),
-            Brief(
-                id: 2,
-                title: "금융주, 금리 동결 기대에 강세",
-                summary: "중앙은행 금리 동결 가능성이 확대되며 은행주가 동반 반등했습니다.",
-                positivePoints: ["순이자마진 개선 기대", "배당주 관심 증가"],
-                negativePoints: ["대출 성장 둔화 우려"],
-                relatedStocks: ["KB금융", "신한지주", "하나금융"],
-                relatedSectors: ["금융"],
-                publishedAt: noon
-            ),
-            Brief(
-                id: 3,
-                title: "야간 글로벌 시장, 변동성 확대",
-                summary: "중동 지정학 이슈로 유가와 안전자산 흐름이 엇갈리고 있습니다.",
-                positivePoints: ["에너지 섹터 단기 모멘텀"],
-                negativePoints: ["증시 위험회피 심리 확대", "환율 변동성"],
-                relatedStocks: ["S-Oil", "SK이노베이션"],
-                relatedSectors: ["에너지", "글로벌"],
-                publishedAt: night
-            )
+    static func makeBriefs(isProMode: Bool) -> [Brief] {
+        [
+            Brief(slot: .morning, isUnlocked: true, topics: morningTopics),
+            Brief(slot: .noon, isUnlocked: isProMode, topics: noonTopics),
+            Brief(slot: .night, isUnlocked: isProMode, topics: nightTopics)
         ]
     }
+
+    static let briefs = makeBriefs(isProMode: false)
+
+    private static func makeTopics(for slot: BriefSlot) -> [BriefTopic] {
+        topicSeeds.enumerated().map { index, seed in
+            BriefTopic(
+                topicNumber: index + 1,
+                category: seed.category,
+                subCategory: seed.subCategory,
+                title: title(for: slot, seed: seed),
+                summary: summary(for: slot, seed: seed),
+                mood: mood(for: slot, index: index),
+                keyPoints: keyPoints(for: slot, seed: seed),
+                relatedStocks: seed.relatedStocks,
+                detail: detail(for: slot, seed: seed)
+            )
+        }
+    }
+
+    private static func title(for slot: BriefSlot, seed: TopicSeed) -> String {
+        switch slot {
+        case .morning: return "\(seed.label) 장전 체크포인트 부각"
+        case .noon: return "\(seed.label) 장중 수급 변화 감지"
+        case .night: return "\(seed.label) 마감 흐름과 내일 변수"
+        }
+    }
+
+    private static func summary(for slot: BriefSlot, seed: TopicSeed) -> String {
+        switch slot {
+        case .morning: return "개장 전 \(seed.label) 관련 이슈와 선반영 가능성을 점검합니다."
+        case .noon: return "오전 거래 이후 \(seed.label) 종목군의 강약과 뉴스 반응을 정리합니다."
+        case .night: return "마감 후 \(seed.label) 흐름을 복기하고 다음 거래일 관전 포인트를 정리합니다."
+        }
+    }
+
+    private static func keyPoints(for slot: BriefSlot, seed: TopicSeed) -> [String] {
+        switch slot {
+        case .morning:
+            return [
+                "해외 뉴스와 선물 흐름이 \(seed.label) 심리에 영향",
+                "개장 초반 대형주 수급 확인 필요",
+                "관련 테마 확산 여부가 단기 방향성 결정"
+            ]
+        case .noon:
+            return [
+                "오전 강세 종목과 약세 종목 간 차별화 확대",
+                "기관·외국인 수급 변화가 \(seed.label) 흐름을 좌우",
+                "오후 변동성 구간에서 거래대금 유지 여부 체크"
+            ]
+        case .night:
+            return [
+                "마감 가격 기준으로 단기 추세 유지 여부 확인",
+                "시간외 뉴스와 해외 지표가 다음날 출발점에 영향",
+                "\(seed.label) 내 주도 종목 교체 가능성 점검"
+            ]
+        }
+    }
+
+    private static func detail(for slot: BriefSlot, seed: TopicSeed) -> String {
+        switch slot {
+        case .morning:
+            return "오늘 \(seed.label) 영역은 장 시작 전부터 관련 뉴스와 매크로 변수의 영향을 받고 있습니다. 초반에는 기대감이 먼저 반영될 수 있지만, 실제 수급이 이어지는지 확인하는 것이 중요합니다."
+        case .noon:
+            return "오전장을 지나며 \(seed.label) 관련 종목은 뉴스 반응과 거래대금에 따라 흐름이 갈리고 있습니다. 오후에는 지수 방향보다 개별 이슈의 지속력이 더 중요한 체크포인트입니다."
+        case .night:
+            return "마감 기준 \(seed.label) 흐름은 단기 모멘텀과 차익실현 압력이 함께 나타났습니다. 내일은 해외 시장 반응과 장전 뉴스가 재평가의 핵심 변수가 될 가능성이 큽니다."
+        }
+    }
+
+    private static func mood(for slot: BriefSlot, index: Int) -> BriefMood {
+        switch (slot, index % 3) {
+        case (.morning, 0), (.noon, 1), (.night, 2): return .positive
+        case (.morning, 1), (.noon, 2), (.night, 0): return .neutral
+        default: return .negative
+        }
+    }
+
+    private struct TopicSeed {
+        let category: BriefCategory
+        let subCategory: String
+        let label: String
+        let relatedStocks: [String]
+    }
+
+    private static let topicSeeds: [TopicSeed] = [
+        TopicSeed(category: .aiTech, subCategory: "AI", label: "AI · 기술", relatedStocks: ["엔비디아", "SK하이닉스", "삼성전자", "한미반도체"]),
+        TopicSeed(category: .finance, subCategory: "금리", label: "금융", relatedStocks: ["KB금융", "신한지주", "하나금융", "카카오뱅크"]),
+        TopicSeed(category: .energy, subCategory: "원유", label: "에너지", relatedStocks: ["S-Oil", "SK이노베이션", "한국전력", "두산에너빌리티"]),
+        TopicSeed(category: .mobility, subCategory: "전기차", label: "모빌리티", relatedStocks: ["현대차", "기아", "LG에너지솔루션", "포스코퓨처엠"]),
+        TopicSeed(category: .bio, subCategory: "신약", label: "바이오", relatedStocks: ["삼성바이오로직스", "셀트리온", "유한양행", "리가켐바이오"]),
+        TopicSeed(category: .consumerLife, subCategory: "소비", label: "소비 · 라이프", relatedStocks: ["아모레퍼시픽", "호텔신라", "CJ제일제당", "BGF리테일"]),
+        TopicSeed(category: .industryManufacturing, subCategory: "제조", label: "산업 · 제조", relatedStocks: ["HD현대중공업", "두산밥캣", "LS", "한화오션"]),
+        TopicSeed(category: .global, subCategory: "미국", label: "글로벌", relatedStocks: ["S&P500", "나스닥", "애플", "마이크로소프트"]),
+        TopicSeed(category: .crypto, subCategory: "디지털자산", label: "크립토", relatedStocks: ["비트코인", "이더리움", "코인베이스", "두나무"]),
+        TopicSeed(category: .contentEntertainment, subCategory: "콘텐츠", label: "콘텐츠 · 엔터", relatedStocks: ["하이브", "JYP Ent.", "에스엠", "스튜디오드래곤"])
+    ]
 }
