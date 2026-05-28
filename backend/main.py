@@ -390,23 +390,23 @@ def start_scheduler():
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="morning"),
         'cron',
-        hour='9',
-        minute='0',
+        hour='6',
+        minute='30',
         timezone='Asia/Seoul'
     )
     
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="noon"),
         'cron',
-        hour='13',
-        minute='0',
+        hour='11',
+        minute='30',
         timezone='Asia/Seoul'
     )
     
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="night"),
         'cron',
-        hour='17',
+        hour='19',
         minute='0',
         timezone='Asia/Seoul'
     )
