@@ -60,6 +60,15 @@ class UserInterestsResponse(BaseModel):
     interested_markets: list
 
 
+# ============ KST 오늘 시작 시각 (UTC) ============
+
+def get_kst_today_start_utc() -> datetime:
+    """KST 기준 오늘 00:00:00을 UTC로 반환"""
+    kst_now = datetime.utcnow() + timedelta(hours=9)
+    kst_today_start = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return kst_today_start - timedelta(hours=9)
+
+
 # ============ API 엔드포인트 ============
 
 @app.on_event("startup")
@@ -115,7 +124,7 @@ async def get_briefings(
     db: Session = Depends(get_db)
 ):
     """
-    브리핑 목록 조회 (필터링 가능)
+    브리핑 목록 조회 - KST 기준 오늘 생성된 것만 반환
     
     Parameters:
     - limit: 조회 개수 (기본 20, 최대 100)
@@ -125,8 +134,13 @@ async def get_briefings(
     - stocks: 종목 필터
     - mood: 분위기 필터 (positive, neutral, negative)
     """
+
+    # KST 오늘 날짜 기준으로 필터 (항상 오늘 브리핑만 내려줌)
+    utc_today_start = get_kst_today_start_utc()
     
-    query = db.query(Briefing).join(Article)
+    query = db.query(Briefing).join(Article).filter(
+        Briefing.generated_at >= utc_today_start
+    )
     
     if time_slot:
         query = query.filter(Briefing.time_slot == time_slot)
@@ -257,13 +271,17 @@ async def get_user_personalized_briefings(
     time_slot: str = Query(None),
     db: Session = Depends(get_db)
 ):
-    """사용자 맞춤형 브리핑 조회"""
+    """사용자 맞춤형 브리핑 조회 - KST 기준 오늘 것만"""
     
     user_interest = db.query(UserInterest).filter(
         UserInterest.user_id == user_id
     ).first()
+
+    utc_today_start = get_kst_today_start_utc()
     
-    query = db.query(Briefing)
+    query = db.query(Briefing).filter(
+        Briefing.generated_at >= utc_today_start
+    )
     
     if time_slot:
         query = query.filter(Briefing.time_slot == time_slot)
@@ -354,20 +372,19 @@ def run_crawl_and_generate(slot: str = "morning"):
         logger.error(traceback.format_exc())
 
 
-def clean_previous_day_data():
-    """자동 정리 함수 - 자정마다 KST 기준 전날 데이터 삭제"""
+def clean_old_data():
+    """자동 정리 - 자정마다 KST 기준 2일 이상 된 데이터 삭제"""
     db = SessionLocal()
     try:
-        # KST 기준 오늘 00:00을 UTC로 변환
-        # datetime.utcnow() + 9h = KST 현재시각
-        # KST 오늘 자정 → UTC로 다시 변환 = UTC 어제 15:00
+        # KST 오늘 00:00 기준으로 2일 전 이전 데이터 삭제
+        # → 오늘 + 어제 데이터는 보존
         kst_now = datetime.utcnow() + timedelta(hours=9)
         kst_today_start = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
-        utc_cutoff = kst_today_start - timedelta(hours=9)
+        utc_cutoff = kst_today_start - timedelta(hours=9) - timedelta(days=1)
 
         logger.info("\n" + "="*50)
-        logger.info("🧹 자정 정리 시작")
-        logger.info(f"   기준 시각: KST {kst_today_start.strftime('%Y-%m-%d %H:%M')} / UTC {utc_cutoff.strftime('%Y-%m-%d %H:%M')}")
+        logger.info("🧹 자정 정리 시작 (2일 이상 된 데이터 삭제)")
+        logger.info(f"   기준 시각: KST {(kst_today_start - timedelta(days=1)).strftime('%Y-%m-%d %H:%M')} 이전")
         logger.info("="*50 + "\n")
 
         briefing_count = db.query(Briefing).filter(
@@ -397,42 +414,29 @@ def start_scheduler():
     global scheduler
     
     scheduler = BackgroundScheduler()
-    
+
+    # 크롤링: 표시 30분 전
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="morning"),
-        'cron',
-        hour='7',
-        minute='30',
-        timezone='Asia/Seoul'
+        'cron', hour='7', minute='0', timezone='Asia/Seoul'
     )
-    
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="noon"),
-        'cron',
-        hour='12',
-        minute='00',
-        timezone='Asia/Seoul'
+        'cron', hour='11', minute='30', timezone='Asia/Seoul'
     )
-    
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="night"),
-        'cron',
-        hour='19',
-        minute='0',
-        timezone='Asia/Seoul'
+        'cron', hour='18', minute='30', timezone='Asia/Seoul'
     )
-    
-    # 자정마다 KST 기준 전날 데이터 정리
+
+    # 자정마다 2일 이상 된 데이터 정리
     scheduler.add_job(
-        clean_previous_day_data,
-        'cron',
-        hour='01',
-        minute='0',
-        timezone='Asia/Seoul'
+        clean_old_data,
+        'cron', hour='0', minute='0', timezone='Asia/Seoul'
     )
     
     scheduler.start()
-    logger.info("✅ 스케줄러 시작 (07:30/12:00/19:00 크롤링 + 00:00 정리)")
+    logger.info("✅ 스케줄러 시작 (07:00/11:30/18:30 크롤링 + 00:00 정리)")
 
 
 @app.on_event("shutdown")
