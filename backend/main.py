@@ -422,11 +422,11 @@ def start_scheduler():
     )
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="noon"),
-        'cron', hour='11', minute='30', timezone='Asia/Seoul'
+        'cron', hour='12', minute='00', timezone='Asia/Seoul'
     )
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="night"),
-        'cron', hour='18', minute='30', timezone='Asia/Seoul'
+        'cron', hour='19', minute='30', timezone='Asia/Seoul'
     )
 
     # 자정마다 2일 이상 된 데이터 정리
@@ -436,7 +436,7 @@ def start_scheduler():
     )
     
     scheduler.start()
-    logger.info("✅ 스케줄러 시작 (07:00/11:30/18:30 크롤링 + 00:00 정리)")
+    logger.info("✅ 스케줄러 시작 (07:00/12:00/19:30 크롤링 + 00:00 정리)")
 
 
 @app.on_event("shutdown")
