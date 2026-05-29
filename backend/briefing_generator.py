@@ -177,7 +177,7 @@ class BriefingGenerator:
     "watch_points": ["포인트1", "포인트2", "포인트3"],
     "related_stocks": ["종목1", "종목2", "종목3"],
     "mood": "positive|neutral|negative",
-    "investor_sentiment": "2-3문장"
+    "investor_sentiment": "2문장 이내로 핵심만 (길면 안 읽힘)"
 }}
 
 JSON만 응답하세요 (설명 없음)
@@ -281,7 +281,7 @@ JSON만 응답하세요 (설명 없음)
     "watch_points": ["포인트1", "포인트2", "포인트3"],
     "related_stocks": ["종목1", "종목2", "종목3"],
     "mood": "positive|neutral|negative",
-    "investor_sentiment": "2-3문장"
+    "investor_sentiment": "2문장 이내로 핵심만 (길면 안 읽힘)"
 }}
 
 JSON만 응답하세요 (설명 없음)
