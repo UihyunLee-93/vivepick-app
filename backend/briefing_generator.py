@@ -16,7 +16,7 @@ class BriefingGenerator:
     """VibePick 재미있는 시장 분위기 브리핑"""
     
     def __init__(self):
-        self.model = "claude-opus-4-6"
+        self.model = "claude-sonnet-4-6"
         self.max_tokens = 1000
     
     def is_weekend(self) -> bool:
