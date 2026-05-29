@@ -28,7 +28,7 @@ class BriefingGenerator:
         logger.info(f"이미 분석된 기사: {len(analyzed_ids)}개")
         
         unanalyzed_articles = db.query(Article).filter(
-            ~Article.id.isin(analyzed_ids) if analyzed_ids else True
+            Article.id.notin_(analyzed_ids) if analyzed_ids else True
         ).order_by(
             Article.crawled_at.desc()
         ).limit(100).all()
