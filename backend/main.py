@@ -355,30 +355,34 @@ def run_crawl_and_generate(slot: str = "morning"):
 
 
 def clean_previous_day_data():
-    """자동 정리 함수 - 자정마다 전날 데이터 삭제"""
+    """자동 정리 함수 - 자정마다 KST 기준 전날 데이터 삭제"""
     db = SessionLocal()
     try:
-        yesterday = datetime.utcnow() - timedelta(days=1)
-        
+        # KST 기준 오늘 00:00을 UTC로 변환
+        # datetime.utcnow() + 9h = KST 현재시각
+        # KST 오늘 자정 → UTC로 다시 변환 = UTC 어제 15:00
+        kst_now = datetime.utcnow() + timedelta(hours=9)
+        kst_today_start = kst_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        utc_cutoff = kst_today_start - timedelta(hours=9)
+
         logger.info("\n" + "="*50)
         logger.info("🧹 자정 정리 시작")
+        logger.info(f"   기준 시각: KST {kst_today_start.strftime('%Y-%m-%d %H:%M')} / UTC {utc_cutoff.strftime('%Y-%m-%d %H:%M')}")
         logger.info("="*50 + "\n")
-        
-        # briefings 정리
+
         briefing_count = db.query(Briefing).filter(
-            Briefing.generated_at < yesterday
+            Briefing.generated_at < utc_cutoff
         ).delete()
-        
-        # articles 정리
+
         article_count = db.query(Article).filter(
-            Article.crawled_at < yesterday
+            Article.crawled_at < utc_cutoff
         ).delete()
-        
+
         db.commit()
-        
+
         logger.info(f"✅ 정리 완료: briefing {briefing_count}개, article {article_count}개 삭제")
         logger.info("="*50 + "\n")
-        
+
     except Exception as e:
         db.rollback()
         logger.error(f"❌ 정리 실패: {str(e)}")
@@ -394,7 +398,6 @@ def start_scheduler():
     
     scheduler = BackgroundScheduler()
     
-    # 하루 3회: 09:00 (아침), 13:00 (점심), 17:00 (저녁)
     scheduler.add_job(
         lambda: run_crawl_and_generate(slot="morning"),
         'cron',
@@ -419,17 +422,17 @@ def start_scheduler():
         timezone='Asia/Seoul'
     )
     
-    # ✅ 자정마다 전날 데이터 정리
+    # 자정마다 KST 기준 전날 데이터 정리
     scheduler.add_job(
         clean_previous_day_data,
         'cron',
         hour='00',
-        minute='00',
+        minute='55',
         timezone='Asia/Seoul'
     )
     
     scheduler.start()
-    logger.info("✅ 스케줄러 시작 (09:00/13:00/17:00 크롤링 + 00:00 정리)")
+    logger.info("✅ 스케줄러 시작 (07:30/12:00/19:00 크롤링 + 00:00 정리)")
 
 
 @app.on_event("shutdown")
