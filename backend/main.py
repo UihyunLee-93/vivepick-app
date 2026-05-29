@@ -423,8 +423,8 @@ def start_scheduler():
     scheduler.add_job(
         clean_previous_day_data,
         'cron',
-        hour='0',
-        minute='0',
+        hour='13',
+        minute='20',
         timezone='Asia/Seoul'
     )
     
