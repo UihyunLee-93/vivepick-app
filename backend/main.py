@@ -407,7 +407,7 @@ def start_scheduler():
         lambda: run_crawl_and_generate(slot="noon"),
         'cron',
         hour='13',
-        minute='0',
+        minute='11',
         timezone='Asia/Seoul'
     )
     
