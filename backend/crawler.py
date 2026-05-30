@@ -26,7 +26,6 @@ class NewsCrawler:
             "X-Naver-Client-Secret": self.client_secret or ""
         }
         
-        # ✅ 카테고리별 검색어 (투자 관련성 높은 것만)
         self.categories = {
             "AI · 기술": [
                 "생성형AI",
@@ -52,9 +51,9 @@ class NewsCrawler:
             "모빌리티": [
                 "전기차",
                 "자율주행",
-                "배터리",
-                "자동차",
-                "현대차"
+                "현대차",
+                "자동차주",
+                "기아주가"
             ],
             "바이오": [
                 "신약승인",
@@ -71,36 +70,37 @@ class NewsCrawler:
                 "주택"
             ],
             "산업 · 제조": [
-                "반도체",
-                "제조업",
-                "자동화",
-                "조선",
-                "철강"
+                "조선주",
+                "철강주",
+                "포스코",
+                "한화",
+                "방산주",
+                "HD현대",
+                "두산에너빌"
             ],
             "글로벌": [
                 "미국주식",
                 "연방준비제도",
-                "환율",
                 "글로벌기업",
-                "나스닥"
+                "나스닥",
+                "S&P500"
             ],
             "크립토": [
                 "비트코인",
                 "블록체인",
                 "암호화폐",
-                "ETF",
-                "규제"
+                "가상자산",
+                "코인ETF"
             ],
             "콘텐츠 · 엔터": [
                 "웹툰",
                 "게임주",
                 "넷플릭스",
                 "카카오",
-                "네이버"
+                "하이브주가"
             ]
         }
         
-        # ✅ 필터링: 제외할 키워드들
         self.exclude_keywords = [
             "공무원", "시장", "구청", "후보", "선거", "정당",
             "정책자금", "대출", "착수금",
@@ -112,7 +112,6 @@ class NewsCrawler:
             "세미나", "발표회"
         ]
         
-        # ✅ 필터링: 포함해야 할 키워드들 (투자 관련)
         self.required_keywords = [
             "주가", "수익", "실적", "주식", "종목",
             "상승", "하락", "급등", "급락",
@@ -126,19 +125,15 @@ class NewsCrawler:
         """투자 관련성 판단"""
         text = (title + " " + content).lower()
         
-        # 제외 키워드 체크
         for keyword in self.exclude_keywords:
             if keyword in text:
                 return False
         
-        # 최소 1개의 투자 관련 키워드 포함 필요
-        investment_found = False
         for keyword in self.required_keywords:
             if keyword in text:
-                investment_found = True
-                break
+                return True
         
-        return investment_found
+        return False
     
     def crawl_category_news(self, category: str, keywords: list) -> list:
         """카테고리별 뉴스 크롤링"""
@@ -186,7 +181,6 @@ class NewsCrawler:
                             if not (title and link):
                                 continue
                             
-                            # ✅ 투자 관련성 필터링
                             if not self.is_investment_relevant(title, desc):
                                 filtered += 1
                                 logger.debug(f"      ⊘ 필터 제외: {title[:40]}")
@@ -197,7 +191,7 @@ class NewsCrawler:
                                 'url': link,
                                 'content': desc if len(desc) > 10 else title,
                                 'source': '네이버뉴스',
-                                'category': category,  # ✅ 카테고리 저장
+                                'category': category,
                                 'published_at': datetime.utcnow()
                             })
                             
@@ -243,14 +237,13 @@ class NewsCrawler:
                         duplicate_count += 1
                         continue
                     
-                    # ✅ source_name에 카테고리 정보 저장
                     source_name = f"{article_data['source']} - {article_data.get('category', '')}"
                     
                     new_article = Article(
                         title=article_data['title'][:500],
                         source_url=article_data['url'],
                         original_content=article_data['content'][:2000],
-                        source_name=source_name,  # ✅ 카테고리 포함
+                        source_name=source_name,
                         crawled_at=article_data.get('published_at', datetime.utcnow())
                     )
                     
