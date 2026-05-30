@@ -13,7 +13,16 @@ DATABASE_URL = os.getenv("SUPABASE_DB_URL")
 if not DATABASE_URL:
     print("⚠️ DATABASE_URL not found, skipping DB init")
     DATABASE_URL = "postgresql://localhost/dummy"
-engine = create_engine(DATABASE_URL, echo=False)
+
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,   # 끊어진 커넥션 자동 감지 후 재연결
+    pool_recycle=300,     # 5분마다 커넥션 재생성 (Supabase idle 타임아웃 대응)
+    pool_size=5,
+    max_overflow=10
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
@@ -43,13 +52,13 @@ class Briefing(Base):
     id = Column(BigInteger, primary_key=True, index=True)
     article_id = Column(BigInteger, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False)
     ai_summary = Column(Text, nullable=False)
-    main_story = Column(Text, nullable=True)  # ✅ 새로 추가
+    main_story = Column(Text, nullable=True)
     positive_points = Column(ARRAY(String), nullable=False, default=[])
     negative_points = Column(ARRAY(String), nullable=False, default=[])
     related_stocks = Column(ARRAY(String), nullable=False, default=[], index=True)
     related_sectors = Column(ARRAY(String), nullable=False, default=[], index=True)
-    mood = Column(String(20), nullable=True)  # ✅ 새로 추가
-    time_slot = Column(String(20), nullable=True)  # ✅ 새로 추가
+    mood = Column(String(20), nullable=True)
+    time_slot = Column(String(20), nullable=True)
     generated_at = Column(DateTime, default=datetime.utcnow)
     
     # 관계
