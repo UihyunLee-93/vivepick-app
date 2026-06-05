@@ -15,6 +15,14 @@ struct HomeView: View {
         BriefSlotGroup.makeGroups(from: briefs, isProMode: isProMode)
     }
 
+    private var shouldShowLoadingOverlay: Bool {
+        isLoading
+    }
+
+    private var isInitialBriefingLoad: Bool {
+        isLoading && !hasLoadedBriefings
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -30,27 +38,29 @@ struct HomeView: View {
                             errorView(message: errorMessage)
                         }
 
-                        ForEach(displayGroups) { group in
-                            NavigationLink {
-                                if group.isUnlocked {
-                                    BriefDetailView(group: group)
-                                } else {
-                                    LockedBriefView(slot: group.slot)
+                        if !isInitialBriefingLoad {
+                            ForEach(displayGroups) { group in
+                                NavigationLink {
+                                    if group.isUnlocked {
+                                        BriefDetailView(group: group)
+                                    } else {
+                                        LockedBriefView(slot: group.slot)
+                                    }
+                                } label: {
+                                    BriefCard(group: group)
                                 }
-                            } label: {
-                                BriefCard(group: group)
+                                .buttonStyle(.plain)
+                                .disabled(!group.hasBriefs)
                             }
-                            .buttonStyle(.plain)
-                            .disabled(!group.hasBriefs)
                         }
                     }
                     .padding(.horizontal, 18)
                     .padding(.bottom, 32)
                 }
-                .disabled(isLoading)
-                .blur(radius: isLoading ? 1.5 : 0)
+                .disabled(shouldShowLoadingOverlay)
+                .blur(radius: shouldShowLoadingOverlay ? 1.5 : 0)
 
-                if isLoading {
+                if shouldShowLoadingOverlay {
                     loadingOverlay
                 }
             }
