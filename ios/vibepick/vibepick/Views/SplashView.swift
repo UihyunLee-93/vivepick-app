@@ -31,9 +31,9 @@ struct SplashView: View {
                 }
 
                 VStack(spacing: 10) {
-                    SplashSignalRow(emoji: "🌅", title: "아침 브리핑", status: "07:30", color: Color(hex: "FF8A4C"))
-                    SplashSignalRow(emoji: "☀️", title: "점심 브리핑", status: "12:30 · 프로", color: Color(hex: "FFB86B"))
-                    SplashSignalRow(emoji: "🌙", title: "저녁 브리핑", status: "20:00 · 프로", color: Color(hex: "8B5CF6"))
+                    SplashSignalRow(emoji: "🌅", title: "아침 브리핑", status: "08:00", color: Color(hex: "FF8A4C"))
+                    SplashSignalRow(emoji: "☀️", title: "점심 브리핑", status: "12:30", color: Color(hex: "FFB86B"))
+                    SplashSignalRow(emoji: "🌙", title: "저녁 브리핑", status: "20:00", color: Color(hex: "8B5CF6"))
                 }
                 .padding(.top, 44)
                 .padding(.horizontal, 24)
@@ -57,11 +57,8 @@ struct SplashView: View {
                 }
                 .padding(.horizontal, 24)
 
-                Text("이미 계정이 있으신가요? 로그인")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(VPTheme.grayText)
-                    .padding(.top, 16)
-                    .padding(.bottom, 34)
+                Color.clear
+                    .frame(height: 34)
             }
         }
     }

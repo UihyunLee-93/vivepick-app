@@ -38,11 +38,7 @@ enum InfoPage: String, Identifiable, Hashable {
             return [
                 InfoSection(
                     title: "아침 · 점심 · 저녁 브리핑",
-                    body: "하루 3번 시장 흐름을 정리해 푸시로 보내드립니다.\n• 아침 브리핑 07:30 — 장 시작 전 분위기\n• 점심 브리핑 12:30 — 오후 흐름 점검\n• 저녁 브리핑 20:00 — 마감 정리와 내일 전망"
-                ),
-                InfoSection(
-                    title: "프로 구독",
-                    body: "무료 플랜에서는 아침 브리핑을 이용할 수 있고, 프로를 구독하면 점심·저녁 브리핑까지 모두 잠금 해제됩니다. 구독은 '설정 → 구독 관리'에서 언제든 변경하거나 해지할 수 있습니다."
+                    body: "하루 3번 시장 흐름을 정리해 푸시로 보내드립니다.\n• 아침 브리핑 08:00 — 장 시작 전 분위기\n• 점심 브리핑 12:30 — 오후 흐름 점검\n• 저녁 브리핑 20:00 — 마감 정리와 내일 전망"
                 ),
                 InfoSection(
                     title: "카드 상세 화면",
@@ -50,7 +46,7 @@ enum InfoPage: String, Identifiable, Hashable {
                 ),
                 InfoSection(
                     title: "문의",
-                    body: "버그 제보나 기능 요청은 support@vibepick.app 으로 보내주시면 빠르게 확인해드리겠습니다."
+                    body: "버그 제보나 기능 요청은 https://vibepick.github.io 에서 확인해 주세요."
                 )
             ]
 
@@ -58,11 +54,11 @@ enum InfoPage: String, Identifiable, Hashable {
             return [
                 InfoSection(
                     title: "이용약관 (요약)",
-                    body: "VibePick은 회원에게 시장 분위기 브리핑 서비스를 제공합니다. 회원은 본 서비스를 합법적인 개인 정보 열람 목적으로만 이용해야 하며, 콘텐츠를 무단 복제·재배포·상업적 활용할 수 없습니다.\n\n전체 약관은 vibepick.app/terms 에서 확인할 수 있습니다."
+                    body: "VibePick은 회원에게 시장 분위기 브리핑 서비스를 제공합니다. 회원은 본 서비스를 합법적인 개인 정보 열람 목적으로만 이용해야 하며, 콘텐츠를 무단 복제·재배포·상업적 활용할 수 없습니다.\n\n지원 페이지는 https://vibepick.github.io 에서 확인할 수 있습니다."
                 ),
                 InfoSection(
                     title: "개인정보 처리방침 (요약)",
-                    body: "VibePick은 서비스 제공을 위해 최소한의 정보(계정 식별자, 푸시 토큰, 구독 상태)를 수집합니다. 수집된 정보는 서비스 제공 외 목적으로 사용하거나 제3자에게 판매하지 않습니다.\n\n전체 처리방침은 vibepick.app/privacy 에서 확인할 수 있습니다."
+                    body: "VibePick은 서비스 제공을 위해 최소한의 정보(계정 식별자, 푸시 토큰)를 수집합니다. 수집된 정보는 서비스 제공 외 목적으로 사용하거나 제3자에게 판매하지 않습니다.\n\n전체 처리방침은 https://vibepick.github.io/privacy.html 에서 확인할 수 있습니다."
                 ),
                 InfoSection(
                     title: "데이터 출처",

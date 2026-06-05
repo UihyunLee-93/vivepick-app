@@ -23,7 +23,6 @@ struct CardDetailView: View {
             }
             .ignoresSafeArea(edges: .top)
 
-            // Floating top bar overlay
             topBar
                 .padding(.horizontal, 16)
                 .padding(.top, 6)
@@ -233,17 +232,17 @@ struct CardDetailView: View {
             summarySection
             if !brief.positivePoints.isEmpty {
                 pointsSection(
-                    title: "긍정 포인트",
+                    title: "주목할 흐름",
                     points: brief.positivePoints,
-                    icon: "arrow.up.right",
-                    color: VPTheme.positive
+                    icon: "eye.fill",
+                    color: VPTheme.neutral
                 )
             }
             if !brief.negativePoints.isEmpty {
                 pointsSection(
-                    title: "부정 포인트",
+                    title: "리스크 요인",
                     points: brief.negativePoints,
-                    icon: "arrow.down.right",
+                    icon: "exclamationmark.triangle.fill",
                     color: VPTheme.negative
                 )
             }

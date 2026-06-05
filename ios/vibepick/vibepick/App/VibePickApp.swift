@@ -112,7 +112,7 @@ struct NotificationService {
 extension BriefSlot {
     var notificationHour: Int {
         switch self {
-        case .morning: return 7
+        case .morning: return 8
         case .noon: return 12
         case .night: return 20
         }
@@ -120,7 +120,7 @@ extension BriefSlot {
 
     var notificationMinute: Int {
         switch self {
-        case .morning: return 30
+        case .morning: return 0
         case .noon: return 30
         case .night: return 0
         }

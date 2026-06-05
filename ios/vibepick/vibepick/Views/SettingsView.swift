@@ -6,7 +6,7 @@ struct SettingsView: View {
     @AppStorage(NotificationPreferenceKey.noon) private var noonOn = false
     @AppStorage(NotificationPreferenceKey.night) private var nightOn = false
     @AppStorage(AppMode.isProModeStorageKey) private var isProMode = false
-    @State private var testNotificationStatus: String? = nil
+    private let showsProControls = false
     @AppStorage(BriefCategory.selectedCategoriesStorageKey) private var selectedCategoryIDs = BriefCategory.defaultSelectedCategoryIDs
 
     var body: some View {
@@ -17,12 +17,19 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         header
-                        proCard
-                        devModeSection
+#if DEBUG
+                        if showsProControls {
+                            proCard
+                            devModeSection
+                        }
+#endif
                         notificationSection
-                        testNotificationSection
                         categorySection
-                        subscriptionSection
+#if DEBUG
+                        if showsProControls {
+                            subscriptionSection
+                        }
+#endif
                         infoSection
                         footer
                     }
@@ -40,10 +47,10 @@ struct SettingsView: View {
             updateNotification(for: .morning, isEnabled: isEnabled)
         }
         .onChange(of: noonOn) { _, isEnabled in
-            updateNotification(for: .noon, isEnabled: isEnabled && isProMode)
+            updateNotification(for: .noon, isEnabled: isEnabled && (isProMode || !showsProControls))
         }
         .onChange(of: nightOn) { _, isEnabled in
-            updateNotification(for: .night, isEnabled: isEnabled && isProMode)
+            updateNotification(for: .night, isEnabled: isEnabled && (isProMode || !showsProControls))
         }
     }
 
@@ -61,6 +68,7 @@ struct SettingsView: View {
         }
     }
 
+#if DEBUG
     // MARK: Pro upgrade card
     private var proCard: some View {
         HStack(spacing: 14) {
@@ -167,6 +175,8 @@ struct SettingsView: View {
         }
     }
 
+#endif
+
     // MARK: Notification section
     private var notificationSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -175,55 +185,14 @@ struct SettingsView: View {
             VStack(spacing: 0) {
                 BriefToggleRow(slot: .morning, isOn: $morningOn, isLocked: false)
                 divider
-                BriefToggleRow(slot: .noon, isOn: $noonOn, isLocked: !isProMode)
+                BriefToggleRow(slot: .noon, isOn: $noonOn, isLocked: showsProControls && !isProMode)
                 divider
-                BriefToggleRow(slot: .night, isOn: $nightOn, isLocked: !isProMode)
+                BriefToggleRow(slot: .night, isOn: $nightOn, isLocked: showsProControls && !isProMode)
             }
             .padding(.horizontal, 14)
             .background(VPTheme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.05), lineWidth: 1))
-        }
-    }
-
-    // MARK: Test notification section
-    private var testNotificationSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                scheduleTestNotification()
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "bell.badge.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(VPTheme.purple)
-                        .frame(width: 28, height: 28)
-                        .background(Color.white.opacity(0.05))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("테스트 알림 보내기")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.white)
-
-                        Text(testNotificationStatus ?? "버튼을 누르면 10초 뒤 알림이 도착합니다")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(VPTheme.textTertiary)
-                            .lineLimit(2)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(VPTheme.textMuted)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(VPTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.05), lineWidth: 1))
-            }
-            .buttonStyle(.plain)
         }
     }
 
@@ -262,11 +231,12 @@ struct SettingsView: View {
     }
 
     private var categoryLimit: Int? {
-        isProMode ? nil : AppMode.regularCategoryLimit
+        if !showsProControls { return nil }
+        return isProMode ? nil : AppMode.regularCategoryLimit
     }
 
     private var categoryCountText: String {
-        if isProMode {
+        if !showsProControls || isProMode {
             return "\(selectedCategories.count)/\(BriefCategory.selectableCategories.count) 선택"
         }
 
@@ -274,7 +244,7 @@ struct SettingsView: View {
     }
 
     private var canSelectMoreCategories: Bool {
-        isProMode || selectedCategories.count < AppMode.regularCategoryLimit
+        !showsProControls || isProMode || selectedCategories.count < AppMode.regularCategoryLimit
     }
 
     private func toggleCategory(_ category: BriefCategory) {
@@ -303,12 +273,12 @@ struct SettingsView: View {
 
     private func scheduleCurrentNotifications() {
         updateNotification(for: .morning, isEnabled: morningOn)
-        updateNotification(for: .noon, isEnabled: noonOn && isProMode)
-        updateNotification(for: .night, isEnabled: nightOn && isProMode)
+        updateNotification(for: .noon, isEnabled: noonOn && (isProMode || !showsProControls))
+        updateNotification(for: .night, isEnabled: nightOn && (isProMode || !showsProControls))
     }
 
     private func updateLockedNotificationPreferencesIfNeeded() {
-        if !isProMode {
+        if showsProControls && !isProMode {
             noonOn = false
             nightOn = false
         }
@@ -316,28 +286,7 @@ struct SettingsView: View {
         scheduleCurrentNotifications()
     }
 
-    private func scheduleTestNotification() {
-        testNotificationStatus = "알림 권한을 확인하는 중입니다..."
-
-        Task {
-            let scheduledDate = await NotificationService.shared.scheduleTestNotification()
-            await MainActor.run {
-                if let scheduledDate {
-                    testNotificationStatus = "예약 완료: \(timeString(from: scheduledDate)) 도착 예정"
-                } else {
-                    testNotificationStatus = "알림 권한이 꺼져 있어 예약하지 못했습니다."
-                }
-            }
-        }
-    }
-
-    private func timeString(from date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter.string(from: date)
-    }
-
+#if DEBUG
     // MARK: Subscription section
     private var subscriptionSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -354,6 +303,8 @@ struct SettingsView: View {
             .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.05), lineWidth: 1))
         }
     }
+
+#endif
 
     // MARK: Info section
     private var infoSection: some View {

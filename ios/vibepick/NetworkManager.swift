@@ -14,27 +14,24 @@ final class NetworkManager {
     private init() {}
 
     // ✅ FINAL 버전: BriefingResponse → Brief 변환 포함
-    func fetchBriefings() async throws -> [Brief] {
-        guard let url = URL(string: "\(baseURL)/briefings?limit=20") else {
+    func fetchBriefings(timeSlot: BriefSlot? = nil) async throws -> [Brief] {
+        var components = URLComponents(string: "\(baseURL)/briefings")
+        var queryItems = [URLQueryItem(name: "limit", value: "20")]
+
+        if let timeSlot {
+            queryItems.append(URLQueryItem(name: "time_slot", value: timeSlot.rawValue))
+        }
+
+        components?.queryItems = queryItems
+
+        guard let url = components?.url else {
             throw URLError(.badURL)
         }
 
-        // ✅ Step 1: API 응답을 BriefingResponse로 디코드
         let responses: [BriefingResponse] = try await fetchData(from: url)
-        
-        // ✅ Step 2: BriefingResponse를 BriefTopic으로 변환
-        let topics = responses.enumerated().map { index, response in
-            BriefTopic(from: response, topicNumber: index + 1)
+        return responses.enumerated().map { index, response in
+            response.toBrief(topicNumber: index + 1)
         }
-        
-        // ✅ Step 3: Brief로 감싸기
-        let brief = Brief(
-            slot: .morning,
-            isUnlocked: true,
-            topics: topics
-        )
-        
-        return [brief]
     }
 
     // ✅ 추가: 크롤링 트리거 (당신 코드)

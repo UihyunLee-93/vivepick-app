@@ -214,7 +214,7 @@ struct BriefRow: View {
     }
 }
 
-// MARK: - 05/06. Locked Brief (PRO)
+// MARK: - 05/06. Locked Brief
 struct LockedBriefView: View {
     let slot: BriefSlot
     @Environment(\.dismiss) private var dismiss
@@ -255,11 +255,11 @@ struct LockedBriefView: View {
                     }
 
                     VStack(spacing: 8) {
-                        Text("프로 전용 콘텐츠입니다")
+                        Text("준비 중인 브리핑입니다")
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(.white)
 
-                        Text("\(slot.title)는 VibePick 프로에서\n모든 토픽과 인사이트를 만나볼 수 있어요.")
+                        Text("\(slot.title)는 곧 확인할 수 있도록 준비하고 있습니다.")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(VPTheme.textSecondary)
                             .multilineTextAlignment(.center)
@@ -268,29 +268,6 @@ struct LockedBriefView: View {
                 }
 
                 Spacer()
-
-                Button {} label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 13, weight: .bold))
-                        Text("프로로 업그레이드")
-                            .font(.system(size: 15, weight: .bold))
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(
-                        LinearGradient(
-                            colors: [VPTheme.purple, VPTheme.pink],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: VPTheme.purple.opacity(0.5), radius: 18, y: 10)
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 18)
-                .padding(.bottom, 28)
             }
         }
         .navigationBarHidden(true)

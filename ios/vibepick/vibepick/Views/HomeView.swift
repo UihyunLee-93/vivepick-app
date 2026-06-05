@@ -2,25 +2,17 @@ import SwiftUI
 
 // MARK: - 01. Home (Today's Briefing)
 struct HomeView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppMode.isProModeStorageKey) private var isProMode = false
     @State private var briefs: [Brief] = []
+    @State private var briefsBySlot: [BriefSlot: [Brief]] = [:]
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
-    @State private var crawlLoading = false
-    @State private var crawlMessage = ""
-    @State private var crawlAttemptCount = 0
-    @State private var lastCrawlCheckText = "-"
+    @State private var hasLoadedBriefings = false
+    @State private var shouldRefreshOnNextActive = false
 
     private var displayGroups: [BriefSlotGroup] {
         BriefSlotGroup.makeGroups(from: briefs, isProMode: isProMode)
-    }
-
-    private var shouldShowCrawlDetailCard: Bool {
-        crawlLoading || !crawlMessage.isEmpty || !briefs.isEmpty
-    }
-
-    private var firstLoadedBrief: Brief? {
-        briefs.sorted { $0.publishedAt > $1.publishedAt }.first
     }
 
     var body: some View {
@@ -33,16 +25,6 @@ struct HomeView: View {
                         header
                             .padding(.top, 8)
                             .padding(.bottom, 6)
-
-                        crawlTestPanel
-
-                        if shouldShowCrawlDetailCard {
-                            crawlDetailCard
-                        }
-
-                        if isLoading && briefs.isEmpty {
-                            loadingView
-                        }
 
                         if let errorMessage, briefs.isEmpty {
                             errorView(message: errorMessage)
@@ -59,166 +41,42 @@ struct HomeView: View {
                                 BriefCard(group: group)
                             }
                             .buttonStyle(.plain)
+                            .disabled(!group.hasBriefs)
                         }
                     }
                     .padding(.horizontal, 18)
                     .padding(.bottom, 32)
                 }
+                .disabled(isLoading)
+                .blur(radius: isLoading ? 1.5 : 0)
+
+                if isLoading {
+                    loadingOverlay
+                }
             }
             .navigationBarHidden(true)
         }
         .task {
-            await loadBriefings()
+            await loadBriefingsIfNeeded()
         }
         .refreshable {
-            await loadBriefings()
+            await loadAllBriefings(forceRefresh: true)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            handleScenePhaseChange(newPhase)
         }
     }
 
-    private var crawlTestPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                Task {
-                    await testCrawling()
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 13, weight: .bold))
-                    Text(crawlLoading ? "크롤링 진행 중" : "크롤링 테스트")
-                        .font(.system(size: 13, weight: .bold))
-                    Spacer()
-                    if crawlLoading {
-                        ProgressView()
-                            .tint(.white)
-                    }
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 14)
-                .frame(height: 44)
-                .background(
-                    LinearGradient(
-                        colors: [Color(hex: "2563EB"), VPTheme.purple],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .buttonStyle(.plain)
-            .disabled(crawlLoading)
+    private var loadingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.48)
+                .ignoresSafeArea()
 
-            if !crawlMessage.isEmpty {
-                Text(crawlMessage)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(VPTheme.textTertiary)
-                    .lineLimit(2)
-            }
-        }
-        .padding(14)
-        .background(VPTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.05), lineWidth: 1))
-    }
-
-    private var crawlDetailCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "doc.text.magnifyingglass")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(VPTheme.purple)
-
-                Text("크롤링 테스트 확인")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white)
-
-                Spacer()
-
-                Text(briefs.isEmpty ? "대기" : "서버 데이터")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(briefs.isEmpty ? VPTheme.textTertiary : VPTheme.positive)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background((briefs.isEmpty ? Color.white : VPTheme.positive).opacity(0.10))
-                    .clipShape(Capsule())
-            }
-
-            HStack(spacing: 8) {
-                CrawlMetric(title: "요청", value: "\(crawlAttemptCount)회")
-                CrawlMetric(title: "브리핑", value: "\(briefs.count)개")
-                CrawlMetric(title: "확인", value: lastCrawlCheckText)
-            }
-
-            if let firstLoadedBrief {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        Text(firstLoadedBrief.slot.emoji)
-                            .font(.system(size: 13))
-                        Text(firstLoadedBrief.slot.title)
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.white.opacity(0.86))
-                        Spacer()
-                        Text("총 \(briefs.count)개")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(VPTheme.textTertiary)
-                    }
-
-                    Text(firstLoadedBrief.title)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.white)
-                        .lineLimit(2)
-
-                    Text(firstLoadedBrief.summary)
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundColor(VPTheme.textTertiary)
-                        .lineLimit(2)
-
-                    NavigationLink {
-                        CardDetailView(brief: firstLoadedBrief)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text("첫 브리핑 상세 보기")
-                                .font(.system(size: 12, weight: .bold))
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .bold))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 7)
-                        .background(VPTheme.purple.opacity(0.22))
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(12)
-                .background(Color.white.opacity(0.04))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else {
-                Text("크롤링 완료 후 서버에서 받은 첫 브리핑이 여기에 표시됩니다.")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundColor(VPTheme.textTertiary)
-                    .lineLimit(2)
-            }
-        }
-        .padding(14)
-        .background(VPTheme.surfaceElevated)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(VPTheme.purple.opacity(0.18), lineWidth: 1))
-    }
-
-    private var loadingView: some View {
-        HStack(spacing: 10) {
             ProgressView()
-                .tint(.white)
-            Text("브리핑을 불러오는 중입니다")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(VPTheme.textSecondary)
+                .controlSize(.regular)
+                .tint(.white.opacity(0.92))
         }
-        .frame(maxWidth: .infinity)
-        .padding(18)
-        .background(VPTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.05), lineWidth: 1))
+        .transition(.opacity)
     }
 
     private func errorView(message: String) -> some View {
@@ -244,13 +102,65 @@ struct HomeView: View {
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(VPTheme.negative.opacity(0.18), lineWidth: 1))
     }
 
-    private func loadBriefings() async {
+    private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        switch newPhase {
+        case .background:
+            shouldRefreshOnNextActive = true
+        case .active:
+            guard shouldRefreshOnNextActive, hasLoadedBriefings else { return }
+            shouldRefreshOnNextActive = false
+            Task {
+                await refreshCurrentSlotBriefings()
+            }
+        case .inactive:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func loadBriefingsIfNeeded() async {
+        guard !hasLoadedBriefings else { return }
+        await loadAllBriefings(forceRefresh: false)
+    }
+
+    private func loadAllBriefings(forceRefresh: Bool = false) async {
+        await loadBriefings(for: BriefSlot.allCases, forceRefresh: forceRefresh)
+    }
+
+    private func refreshCurrentSlotBriefings() async {
+        await loadBriefings(for: [currentBriefSlot()], forceRefresh: true)
+    }
+
+    private func loadBriefings(for slots: [BriefSlot], forceRefresh: Bool = false) async {
+        guard !isLoading else { return }
+        guard forceRefresh || !hasLoadedBriefings else { return }
+
         isLoading = true
         errorMessage = nil
 
         do {
-            briefs = try await NetworkManager.shared.fetchBriefings()
-            lastCrawlCheckText = timeString(from: Date())
+            let loadedBriefsBySlot = try await withThrowingTaskGroup(of: (BriefSlot, [Brief]).self) { group in
+                for slot in slots {
+                    group.addTask {
+                        let slotBriefs = try await NetworkManager.shared.fetchBriefings(timeSlot: slot)
+                        let todayBriefs = slotBriefs.filter { Calendar.current.isDateInToday($0.publishedAt) }
+                        return (slot, todayBriefs)
+                    }
+                }
+
+                var results: [BriefSlot: [Brief]] = [:]
+                for try await (slot, slotBriefs) in group {
+                    results[slot] = slotBriefs
+                }
+                return results
+            }
+
+            for (slot, slotBriefs) in loadedBriefsBySlot {
+                briefsBySlot[slot] = slotBriefs
+            }
+            briefs = BriefSlot.allCases.flatMap { briefsBySlot[$0] ?? [] }
+            hasLoadedBriefings = true
             isLoading = false
         } catch {
             isLoading = false
@@ -266,47 +176,16 @@ struct HomeView: View {
         }
     }
 
-    private func testCrawling() async {
-        crawlLoading = true
-        crawlMessage = "크롤링 시작 중..."
-        crawlAttemptCount = 0
-        lastCrawlCheckText = "-"
-        errorMessage = nil
-        briefs = []
+    private func currentBriefSlot(at date: Date = Date()) -> BriefSlot {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        let minutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
 
-        do {
-            _ = try await NetworkManager.shared.triggerCrawl()
-            crawlMessage = "크롤링 시작됨. 잠시 후 자동 새로고침합니다..."
-
-            try await Task.sleep(nanoseconds: 2_000_000_000)
-
-            for index in 1...60 {
-                crawlAttemptCount = index
-                await loadBriefings()
-
-                if !briefs.isEmpty {
-                    crawlMessage = "크롤링 완료! 데이터가 로드되었습니다."
-                    crawlLoading = false
-                    return
-                }
-
-                crawlMessage = "크롤링 중... \(index)초"
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-
-            crawlMessage = "크롤링 타임아웃: 1분 안에 새 데이터가 확인되지 않았습니다."
-            crawlLoading = false
-        } catch {
-            crawlMessage = "크롤링 실패: \(error.localizedDescription)"
-            crawlLoading = false
+        if minutes >= 20 * 60 {
+            return .night
+        } else if minutes >= 12 * 60 + 30 {
+            return .noon
         }
-    }
-
-    private func timeString(from date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter.string(from: date)
+        return .morning
     }
 
     private var header: some View {
@@ -322,25 +201,6 @@ struct HomeView: View {
             }
 
             Spacer()
-
-            HStack(spacing: 4) {
-                Image(systemName: isProMode ? "crown.fill" : "person.fill")
-                    .font(.system(size: 9, weight: .bold))
-                Text(isProMode ? "프로" : "무료")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(0.4)
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-                LinearGradient(
-                    colors: [VPTheme.purple, VPTheme.pink],
-                    startPoint: .leading, endPoint: .trailing
-                )
-            )
-            .clipShape(Capsule())
-            .shadow(color: VPTheme.purple.opacity(0.4), radius: 8, y: 4)
         }
     }
 
@@ -352,42 +212,23 @@ struct HomeView: View {
     }
 }
 
-private struct CrawlMetric: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(VPTheme.textMuted)
-            Text(value)
-                .font(.system(size: 11.5, weight: .bold))
-                .foregroundColor(.white.opacity(0.86))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(Color.white.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-}
-
 // MARK: - Brief Card
 struct BriefCard: View {
     let group: BriefSlotGroup
+
+    private var isInactive: Bool { !group.hasBriefs }
 
     var body: some View {
         ZStack(alignment: .leading) {
             // Background with illustration
             ZStack(alignment: .trailing) {
                 RoundedRectangle(cornerRadius: 20)
-                    .fill(VPTheme.surface)
+                    .fill(VPTheme.surface.opacity(isInactive ? 0.55 : 1))
 
                 BriefIllustration(slot: group.slot)
                     .frame(width: 180, height: 130)
                     .padding(.trailing, -10)
+                    .opacity(isInactive ? 0.22 : 1)
             }
 
             // Content
@@ -402,17 +243,17 @@ struct BriefCard: View {
                         Spacer(minLength: 0)
                         Text("\(group.count)건")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(VPTheme.textTertiary)
+                            .foregroundColor(isInactive ? VPTheme.textMuted : VPTheme.textTertiary)
                     }
 
                     Text(group.slot.title)
                         .font(.system(size: 19, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(isInactive ? .white.opacity(0.46) : .white)
                         .padding(.top, 6)
 
                     Text(group.slot.tagline)
                         .font(.system(size: 11.5, weight: .medium))
-                        .foregroundColor(VPTheme.textTertiary)
+                        .foregroundColor(isInactive ? VPTheme.textMuted : VPTheme.textTertiary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -431,13 +272,26 @@ struct BriefCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .overlay(
             RoundedRectangle(cornerRadius: 20)
-                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                .stroke(Color.white.opacity(isInactive ? 0.035 : 0.06), lineWidth: 1)
         )
+        .opacity(isInactive ? 0.72 : 1)
     }
 
     @ViewBuilder
     private var statusPill: some View {
-        if group.isUnlocked {
+        if !group.hasBriefs {
+            HStack(spacing: 5) {
+                Image(systemName: "clock")
+                    .font(.system(size: 9, weight: .bold))
+                Text("브리핑 없음")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundColor(VPTheme.textMuted)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Color.white.opacity(0.04))
+            .clipShape(Capsule())
+        } else if group.isUnlocked {
             HStack(spacing: 6) {
                 Circle()
                     .fill(VPTheme.positive)
@@ -450,7 +304,7 @@ struct BriefCard: View {
             HStack(spacing: 5) {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 9, weight: .bold))
-                Text("프로 전용")
+                Text("준비 중")
                     .font(.system(size: 11, weight: .semibold))
             }
             .foregroundColor(.white.opacity(0.5))
